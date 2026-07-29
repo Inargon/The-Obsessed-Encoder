@@ -1,0 +1,88 @@
+# Diff of the upstream-derived files in leworldmodel/ against upstream
+# lucas-maes/le-wm @ 8edfeb336732b5f3ce7b8b210d0ba370a09e2cac
+# Every hunk sits inside a '# >>> obsessed-encoder' sentinel block.
+diff --git upstream.train.py leworldmodel/train.py
+index 84794e9..18a4662 100644
+--- upstream.train.py
++++ leworldmodel/train.py
+@@ -13,6 +13,12 @@ from omegaconf import OmegaConf, open_dict
+ from module import SIGReg
+ from utils import get_column_normalizer, get_img_preprocessor, SaveCkptCallback
+ 
++# >>> obsessed-encoder: everything we add lives in additional_files; the
++# config blocks that activate each piece are documented in additional_files/README.md
++from additional_files import callbacks
++from additional_files.pixel_tag import attach_pixel_tag, tag_from_cfg
++# <<< obsessed-encoder
++
+ 
+ def lejepa_forward(self, batch, stage, cfg):
+     """encode observations, predict next states, compute losses."""
+@@ -46,6 +52,12 @@ def lejepa_forward(self, batch, stage, cfg):
+ 
+ @hydra.main(version_base=None, config_path="./config/train", config_name="lewm")
+ def run(cfg):
++    # >>> obsessed-encoder: opt-in full seeding for reproducible runs; absent,
++    # upstream's behavior stands (only the train/val split generator is seeded)
++    if cfg.get("seed_everything"):
++        pl.seed_everything(cfg.seed, workers=True)
++    # <<< obsessed-encoder
++
+     #########################
+     ##       dataset       ##
+     #########################
+@@ -56,6 +68,12 @@ def run(cfg):
+     dataset = swm.data.load_dataset(
+         dataset_name, transform=None, cache_dir=cache_dir, **dataset_cfg
+     )
++    # >>> obsessed-encoder: opt-in on-the-fly corner colour tag; with no
++    # pixel_tag config the reader stays exactly upstream's (docs: additional_files/README.md)
++    tag_cfg = cfg.get("pixel_tag")
++    if tag_cfg and tag_cfg.get("enabled", True):
++        dataset = attach_pixel_tag(dataset, tag_from_cfg(tag_cfg, cfg.seed))
++    # <<< obsessed-encoder
+     transforms = [get_img_preprocessor(source='pixels', target='pixels', img_size=cfg.img_size)]
+     
+     with open_dict(cfg):
+@@ -113,6 +131,14 @@ def run(cfg):
+         logger = WandbLogger(**cfg.wandb.config)
+         logger.log_hyperparams(OmegaConf.to_container(cfg))
+ 
++    # >>> obsessed-encoder: local metrics mirror — every logged payload is also
++    # appended to a metrics.jsonl, the file the figures render from; with
++    # metrics_jsonl_path absent, upstream's logger value passes through untouched.
++    # The wandb stream itself is renamed to the repo-wide unified sections.
++    callbacks.unify_wandb_keys(logger)
++    trainer_logger = callbacks.jsonl_mirror(cfg, logger)
++    # <<< obsessed-encoder
++
+     run_dir.mkdir(parents=True, exist_ok=True)
+     with open(run_dir / "config.yaml", "w") as f:
+         OmegaConf.save(cfg, f)
+@@ -121,11 +147,24 @@ def run(cfg):
+         run_name=cfg.output_model_name, cfg=cfg.model, epoch_interval=1,
+     )
+ 
++    # >>> obsessed-encoder: opt-in callbacks, one per row; each factory returns
++    # an empty list unless its config block is set (docs: additional_files/README.md)
++    extra_callbacks = [
++        *callbacks.goal_eval(cfg),
++        *callbacks.pair_analysis(cfg),
++        *callbacks.episode_preview(cfg, dataset),
++        *callbacks.step_checkpoint(cfg),
++    ]
++    # <<< obsessed-encoder
++
+     trainer = pl.Trainer(
+         **cfg.trainer,
+-        callbacks=[object_dump_callback],
++        # >>> obsessed-encoder: attach the opt-in callbacks/loggers built above
++        # (with their configs absent this is exactly the upstream call)
++        callbacks=[object_dump_callback] + extra_callbacks,
+         num_sanity_val_steps=1,
+-        logger=logger,
++        logger=trainer_logger,
++        # <<< obsessed-encoder
+         enable_checkpointing=True,
+     )
+ 

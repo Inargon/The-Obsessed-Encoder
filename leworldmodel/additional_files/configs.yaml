@@ -1,0 +1,45 @@
+# The four blog arms; everything not listed is the upstream default.
+# epochs=10 is the paper's operating point; seeds come from the runner
+# (--seeds, default 1 -> seed 0). Anti-leak rule (tested): the two
+# square arms differ ONLY in the tag mode, and baseline carries no tag keys.
+# Eval matches each arm's training distribution; pair analysis runs only on
+# the three perturbed arms, each probing the suite matching its perturbation.
+
+epochs: 10
+eval_every_n_steps: 2000
+pair_every_n_steps: 100
+checkpoint_every_n_steps: 500
+preview_episodes: 2
+
+arms:
+  baseline:
+    overrides:
+      - data.dataset.name=pusht_expert_train.h5
+    eval_overrides: []
+
+  colored_square_episode:
+    overrides:
+      - data.dataset.name=pusht_expert_train.h5
+      - +pixel_tag.mode=video
+      - +pixel_tag.size=5
+    pair_suites: [colour]
+    eval_overrides:
+      - +eval.tag_mode=video
+      - +eval.tag_size=5
+
+  colored_square_frame:
+    overrides:
+      - data.dataset.name=pusht_expert_train.h5
+      - +pixel_tag.mode=frame
+      - +pixel_tag.size=5
+    pair_suites: [colour]
+    eval_overrides:
+      - +eval.tag_mode=frame
+      - +eval.tag_size=5
+
+  randgoal:
+    overrides:
+      - data.dataset.name=pusht_scripted_goal_train.lance
+    pair_suites: [t_position]
+    eval_overrides:
+      - +eval.dataset_name=pusht_scripted_goal_train.lance
