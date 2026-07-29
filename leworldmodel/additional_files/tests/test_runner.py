@@ -20,7 +20,8 @@ def _args(tmp_path, **overrides):
     return parser.parse_args(argv)
 
 
-def test_build_spec_prints_a_runnable_command(tmp_path):
+def test_build_spec_prints_a_runnable_command(tmp_path, monkeypatch):
+    monkeypatch.delenv("WANDB_MODE", raising=False)
     cfg = lewm_run.load_configs()
     args = _args(tmp_path, tag="demo")
     spec = lewm_run.build_spec("colored_square_episode",
@@ -34,6 +35,20 @@ def test_build_spec_prints_a_runnable_command(tmp_path):
     assert "wandb.config.name=lewm_colored_square_episode_seed0" in cmd
     assert "WANDB_RUN_GROUP=demo" in cmd
     assert "metrics.jsonl" in cmd
+
+
+def test_offline_wandb_mode_disables_wandb(tmp_path, monkeypatch):
+    # stable_pretraining crashes when asked to start a fresh offline run, so
+    # the runner must translate WANDB_MODE=offline into wandb.enabled=false.
+    cfg = lewm_run.load_configs()
+    for mode in ("offline", "dryrun", "disabled"):
+        monkeypatch.setenv("WANDB_MODE", mode)
+        spec = lewm_run.build_spec("baseline", cfg["arms"]["baseline"], cfg, 0,
+                                   _args(tmp_path))
+        joined = " ".join(spec.command)
+        assert "wandb.enabled=false" in joined
+        assert "wandb.config.name" not in joined
+        assert "++trainer.default_root_dir=" in joined
 
 
 def test_baseline_spec_carries_no_tag_or_pair_keys(tmp_path):

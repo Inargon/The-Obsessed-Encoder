@@ -171,19 +171,3 @@ uv run pytest                 # CPU suite
 uv run pytest -m gpu          # end-to-end smokes (needs a CUDA device)
 ```
 
-## Licenses and attribution
-
-Licensing is per example:
-
-* **`lejepa/`** — derived from the [LeJEPA](https://github.com/galilai-group/lejepa)
-  minimal example (CC BY-NC 4.0); redistributed with the authors' permission,
-  for non-commercial research use.
-* **`dinov3/`** — contains Meta's DINOv3 reference implementation, redistributed
-  under the [DINOv3 License](dinov3/LICENSE.md) (carried verbatim in that
-  directory).  This repository uses the DINOv3 code and follows its license
-  terms; DINOv3 is a product of Meta Platforms, Inc.
-* **`leworldmodel/`** — contains the published
-  [lucas-maes/le-wm](https://github.com/lucas-maes/le-wm) code, redistributed
-  under its [MIT license](leworldmodel/LICENSE) (carried verbatim).
-* **`common/`** and the `additional_files/` directories are this repository's own
-  code.

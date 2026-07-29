@@ -69,18 +69,25 @@ def build_spec(config: str, spec: dict, cfg: dict, seed: int,
             f"+pair.every_n_steps={cfg['pair_every_n_steps']}",
             f"+pair.suites=[{','.join(suites)}]",
         ]
-    # wandb is optional monitoring: always wired, silenced by WANDB_MODE
-    # (offline by default in the Docker image); entity comes from the account.
+    # wandb is optional monitoring; entity comes from the account.
     # The template pins id=${subdir} with resume=allow -- a deterministic id
     # that collides across machines and campaigns and silently appends to
     # older runs; drop both so every invocation gets a fresh random id.
+    # stable_pretraining cannot START a run offline: its wandb init assumes
+    # an earlier offline run dir exists to reuse and crashes on a fresh box,
+    # so WANDB_MODE=offline/disabled turns wandb off instead of silencing it.
+    if os.environ.get("WANDB_MODE", "").lower() in ("offline", "dryrun", "disabled"):
+        command += ["wandb.enabled=false"]
+    else:
+        command += [
+            "wandb.enabled=true",
+            "wandb.config.project=obsessed-encoder-lewm",
+            f"wandb.config.name={CASE}_{name}",
+            "~wandb.config.entity",
+            "~wandb.config.id",
+            "~wandb.config.resume",
+        ]
     command += [
-        "wandb.enabled=true",
-        "wandb.config.project=obsessed-encoder-lewm",
-        f"wandb.config.name={CASE}_{name}",
-        "~wandb.config.entity",
-        "~wandb.config.id",
-        "~wandb.config.resume",
         # Per-run sidecar/checkpoint root: stable-pretraining writes its
         # wandb_resume.json under trainer.default_root_dir, which otherwise
         # is the shared CWD -- concurrent arms would overwrite each other's
