@@ -1,0 +1,28 @@
+# The three shipped arms as environment sets (upstream's make_dataset string
+# only carries the split, so per-run watermark configuration is env-driven; the
+# runner sets these per subprocess and the printed command shows them).
+#
+# Written out in full on purpose: the discipline that `random_control` differs
+# from `watermarked` in DINOV3_WM_REPEAT and in NOTHING else (and that `clean`
+# carries no DINOV3_WM_* vars at all) is enforced by
+# additional_files/tests/test_configs.py.
+
+clean: {}
+
+watermarked:
+  DINOV3_WM_OPACITY: "0.1"
+  DINOV3_WM_MODULUS: "4096"
+  DINOV3_WM_TILE: "32"
+  DINOV3_WM_BITS: "12"
+  DINOV3_WM_ANCHOR: "gabor"
+  DINOV3_WM_RANDOM_ANCHOR: "1"
+  DINOV3_WM_REPEAT: "1"
+
+random_control:
+  DINOV3_WM_OPACITY: "0.1"
+  DINOV3_WM_MODULUS: "4096"
+  DINOV3_WM_TILE: "32"
+  DINOV3_WM_BITS: "12"
+  DINOV3_WM_ANCHOR: "gabor"
+  DINOV3_WM_RANDOM_ANCHOR: "1"
+  DINOV3_WM_REPEAT: "0"
