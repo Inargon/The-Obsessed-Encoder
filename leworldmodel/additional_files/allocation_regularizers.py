@@ -105,9 +105,14 @@ class AllocationRegularizer(nn.Module):
 
         # The k x k Gram matrix has the same non-zero spectrum as the much
         # larger D x D local covariance matrix.
-        gram = differences @ differences.transpose(1, 2)
-        gram = gram / max(points.size(-1), 1)
-        eigenvalues = torch.linalg.eigvalsh(gram).clamp_min(self.eps)
+        # Autocast may downcast the matmul result to BF16 even though ``points``
+        # was explicitly promoted above. CUDA eigendecomposition does not
+        # support BF16, and the spectrum is more stable in FP32 in any case.
+        with torch.autocast(device_type=emb.device.type, enabled=False):
+            differences_fp32 = differences.float()
+            gram = differences_fp32 @ differences_fp32.transpose(1, 2)
+            gram = gram / max(points.size(-1), 1)
+            eigenvalues = torch.linalg.eigvalsh(gram).clamp_min(self.eps)
         probabilities = eigenvalues / eigenvalues.sum(dim=-1, keepdim=True)
         entropy = -(probabilities * probabilities.log()).sum(dim=-1)
         effective_rank = entropy.exp()

@@ -50,3 +50,19 @@ def test_hybrid_has_finite_gradients():
 
     assert emb.grad is not None
     assert torch.isfinite(emb.grad).all()
+
+
+def test_local_rank_keeps_eigendecomposition_in_float32_under_autocast():
+    torch.manual_seed(3)
+    emb = torch.randn(8, 4, 16, requires_grad=True)
+    regularizer = AllocationRegularizer(
+        mode="local_rank", neighbors=6, local_rank_target=5.0
+    )
+
+    with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+        terms = regularizer(emb)
+    terms["allocation_loss"].backward()
+
+    assert terms["allocation_loss"].dtype == torch.float32
+    assert emb.grad is not None
+    assert torch.isfinite(emb.grad).all()
