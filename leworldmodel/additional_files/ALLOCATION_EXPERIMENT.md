@@ -1,8 +1,9 @@
 # Capacity-allocation experiment
 
-This experiment tests three new regularizers on the **same RandGoal failure
-case**. It intentionally does not rerun the published clean or unregularized
-baselines.
+This first experiment tests three new regularizers on the **same per-episode
+coloured-square failure case**. It uses the published PushT expert dataset and
+adds the predictable 5x5 tag online. It intentionally does not rerun the
+published clean, random-control, or unregularized test arms.
 
 ## Arms
 
@@ -46,5 +47,6 @@ Results default to `leworldmodel/results/allocation/`. Override with the
 
 Alongside prediction loss, pair similarity, and planning success, the new arms
 log their component losses and `fit/local_effective_rank`. A successful method
-should recover RandGoal planning and content similarity without merely making
-the training objective look healthier.
+should recover content similarity and planning under the predictable tag
+without merely making the training objective look healthier. The best method
+will then be promoted to the harder task-semantic RandGoal experiment.

@@ -1,5 +1,6 @@
-# Three new-method arms on the same RandGoal failure case. The published clean,
-# square-control, and unregularized RandGoal baselines are intentionally not run.
+# Three new-method arms on the same per-episode coloured-square failure case.
+# The published clean, random-control, and unregularized test arms are
+# intentionally not run.
 
 epochs: 10
 eval_every_n_steps: 2000
@@ -8,10 +9,13 @@ checkpoint_every_n_steps: 500
 preview_episodes: 2
 
 common_overrides:
-  - data.dataset.name=pusht_scripted_goal_train.lance
+  - data.dataset.name=pusht_expert_train.h5
+  - +pixel_tag.mode=video
+  - +pixel_tag.size=5
 
 common_eval_overrides:
-  - +eval.dataset_name=pusht_scripted_goal_train.lance
+  - +eval.tag_mode=video
+  - +eval.tag_size=5
 
 arms:
   conditional:

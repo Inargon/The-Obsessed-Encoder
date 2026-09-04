@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the three capacity-allocation methods on RandGoal without baselines."""
+"""Run three allocation methods on the episode-colour failure without baselines."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def load_allocation_configs() -> dict:
             overrides.append(f"+loss.allocation.{key}={hydra_value}")
         arms[name] = {
             "overrides": overrides,
-            "pair_suites": ["t_position"],
+            "pair_suites": ["colour"],
             "eval_overrides": list(raw["common_eval_overrides"]),
         }
     return {**raw, "arms": arms}
