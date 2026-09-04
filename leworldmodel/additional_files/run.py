@@ -137,7 +137,10 @@ def write_summary(spec: runner.RunSpec, results_dir: str) -> None:
         for key, value in row.items():
             if (
                 key in ("fit/pred_loss", "fit/allocation_loss",
-                        "fit/local_effective_rank", "eval/success_rate")
+                        "fit/local_effective_rank", "fit/control_loss",
+                        "fit/inverse_dynamics_loss", "fit/action_cycle_loss",
+                        "fit/reachability_loss", "fit/reachability_accuracy",
+                        "eval/success_rate")
                 or key.startswith("pair/")
             ):
                 final[f"final_{key}"] = value

@@ -1,0 +1,25 @@
+# Control-grounded allocation experiment
+
+The earlier one-step IDM established that action-relevant supervision resists
+the episode-colour shortcut. This follow-up compares two stronger objectives:
+
+- `multi_horizon_idm`: recover action chunks spanning 1--3 sampled frames
+  (5--15 environment steps with the PushT frameskip).
+- `masked_reachability`: add shared random-subspace masking, an action cycle
+  through the JEPA predictor, and endpoint classification against negatives
+  drawn from the same episode.
+
+Same-episode negatives are essential: every candidate has the same constant
+colour tag, so that tag cannot identify the true action-conditioned endpoint.
+
+Run unit tests, then the 500-step pilot:
+
+```bash
+python -m pytest \
+  leworldmodel/additional_files/tests/test_control_objectives.py \
+  leworldmodel/additional_files/tests/test_control_configs.py -q
+sbatch leworldmodel/additional_files/slurm_control_pilot.sbatch
+```
+
+Only after both pilot arms complete with finite control metrics should the two
+full seed-0 arms be launched with `slurm_control_full.sbatch`.
