@@ -112,10 +112,20 @@ class AllocationRegularizer(nn.Module):
             differences_fp32 = differences.float()
             gram = differences_fp32 @ differences_fp32.transpose(1, 2)
             gram = gram / max(points.size(-1), 1)
-            eigenvalues = torch.linalg.eigvalsh(gram).clamp_min(self.eps)
-        probabilities = eigenvalues / eigenvalues.sum(dim=-1, keepdim=True)
-        entropy = -(probabilities * probabilities.log()).sum(dim=-1)
-        effective_rank = entropy.exp()
+            # Clamp only numerical negative eigenvalues. Giving every null
+            # direction a fixed positive floor would make the estimate depend
+            # on embedding scale and let a collapsed representation appear
+            # full-rank simply by shrinking below that floor.
+            eigenvalues = torch.linalg.eigvalsh(gram).clamp_min(0.0)
+        spectral_mass = eigenvalues.sum(dim=-1, keepdim=True)
+        tiny = torch.finfo(eigenvalues.dtype).tiny
+        probabilities = eigenvalues / spectral_mass.clamp_min(tiny)
+        entropy = -torch.xlogy(probabilities, probabilities).sum(dim=-1)
+        effective_rank = torch.where(
+            spectral_mass.squeeze(-1) > tiny,
+            entropy.exp(),
+            torch.zeros_like(entropy),
+        )
         loss = F.relu(self.local_rank_target - effective_rank).mean()
         return loss, effective_rank.mean().detach()
 

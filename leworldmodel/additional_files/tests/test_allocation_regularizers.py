@@ -66,3 +66,19 @@ def test_local_rank_keeps_eigendecomposition_in_float32_under_autocast():
     assert terms["allocation_loss"].dtype == torch.float32
     assert emb.grad is not None
     assert torch.isfinite(emb.grad).all()
+
+
+def test_local_rank_is_scale_invariant_and_detects_zero_collapse():
+    torch.manual_seed(4)
+    emb = torch.randn(12, 4, 24)
+    regularizer = AllocationRegularizer(
+        mode="local_rank", neighbors=8, local_rank_target=6.0
+    )
+
+    rank = regularizer(emb)["local_effective_rank"]
+    scaled_rank = regularizer(emb * 1e-2)["local_effective_rank"]
+    collapsed = regularizer(torch.zeros_like(emb))
+
+    assert torch.allclose(rank, scaled_rank, rtol=2e-3, atol=2e-3)
+    assert collapsed["local_effective_rank"] == 0.0
+    assert collapsed["local_rank_loss"] == regularizer.local_rank_target
