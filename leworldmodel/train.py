@@ -16,6 +16,7 @@ from utils import get_column_normalizer, get_img_preprocessor, SaveCkptCallback
 # >>> obsessed-encoder: everything we add lives in additional_files; the
 # config blocks that activate each piece are documented in additional_files/README.md
 from additional_files import callbacks
+from additional_files.allocation_regularizers import AllocationRegularizer
 from additional_files.pixel_tag import attach_pixel_tag, tag_from_cfg
 # <<< obsessed-encoder
 
@@ -46,8 +47,19 @@ def lejepa_forward(self, batch, stage, cfg):
     output["sigreg_loss"]= self.sigreg(emb.transpose(0, 1))
     output["loss"] = output["pred_loss"] + lambd * output["sigreg_loss"]  
 
-    losses_dict = {f"{stage}/{k}": v.detach() for k, v in output.items() if "loss" in k}
-    self.log_dict(losses_dict, on_step=True, sync_dist=True)
+    # Opt-in capacity-allocation experiment. The published arms have no
+    # ``loss.allocation`` block and therefore retain the exact upstream loss.
+    if hasattr(self, "allocation_reg"):
+        allocation = self.allocation_reg(emb)
+        output.update(allocation)
+        output["loss"] = output["loss"] + output["allocation_loss"]
+
+    metrics_dict = {
+        f"{stage}/{k}": v.detach()
+        for k, v in output.items()
+        if "loss" in k or k == "local_effective_rank"
+    }
+    self.log_dict(metrics_dict, on_step=True, sync_dist=True)
     return output
 
 @hydra.main(version_base=None, config_path="./config/train", config_name="lewm")
@@ -112,11 +124,19 @@ def run(cfg):
     }
 
     data_module = spt.data.DataModule(train=train, val=val)
+    module_kwargs = {}
+    allocation_cfg = cfg.loss.get("allocation")
+    if allocation_cfg and allocation_cfg.get("enabled", True):
+        allocation_kwargs = OmegaConf.to_container(allocation_cfg, resolve=True)
+        allocation_kwargs.pop("enabled", None)
+        module_kwargs["allocation_reg"] = AllocationRegularizer(**allocation_kwargs)
+
     world_model = spt.Module(
         model = world_model,
         sigreg = SIGReg(**cfg.loss.sigreg.kwargs),
         forward=partial(lejepa_forward, cfg=cfg),
         optim=optimizers,
+        **module_kwargs,
     )
 
     ##########################

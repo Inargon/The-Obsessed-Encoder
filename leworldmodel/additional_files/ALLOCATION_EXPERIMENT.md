@@ -1,0 +1,50 @@
+# Capacity-allocation experiment
+
+This experiment tests three new regularizers on the **same RandGoal failure
+case**. It intentionally does not rerun the published clean or unregularized
+baselines.
+
+## Arms
+
+- `conditional`: variance and decorrelation after subtracting each episode's
+  temporal mean. Episode-constant features cannot satisfy this loss.
+- `local_rank`: a differentiable hinge on neighborhood effective rank. This
+  targets the low-dimensional folded manifold shown in the blog post.
+- `hybrid`: both terms together.
+
+The original SIGReg and prediction losses remain enabled in all arms. The only
+difference among arms is `loss.allocation.*`.
+
+## Run
+
+From `leworldmodel/`, with the published environment and RandGoal dataset
+already prepared:
+
+```bash
+python additional_files/run_allocations.py --seeds 3 --gpus 0,1,2
+```
+
+This launches exactly nine runs: three methods times seeds 0, 1, and 2. To
+shake out all three methods cheaply before the full campaign:
+
+```bash
+python additional_files/run_allocations.py \
+  --seeds 1 --gpus 0 \
+  --extra-opts '+trainer.max_steps=20 +eval.every_n_steps=100000 +pair.every_n_steps=100000'
+```
+
+Inspect the exact commands without running them:
+
+```bash
+python additional_files/run_allocations.py --seeds 1 --gpus 0 --dry-run
+```
+
+Results default to `leworldmodel/results/allocation/`. Override with the
+`RESULTS_DIR` environment variable or `--results-dir`.
+
+## Logged diagnostics
+
+Alongside prediction loss, pair similarity, and planning success, the new arms
+log their component losses and `fit/local_effective_rank`. A successful method
+should recover RandGoal planning and content similarity without merely making
+the training objective look healthier.

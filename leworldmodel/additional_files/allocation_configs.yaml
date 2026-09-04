@@ -1,0 +1,42 @@
+# Three new-method arms on the same RandGoal failure case. The published clean,
+# square-control, and unregularized RandGoal baselines are intentionally not run.
+
+epochs: 10
+eval_every_n_steps: 2000
+pair_every_n_steps: 100
+checkpoint_every_n_steps: 500
+preview_episodes: 2
+
+common_overrides:
+  - data.dataset.name=pusht_scripted_goal_train.lance
+
+common_eval_overrides:
+  - +eval.dataset_name=pusht_scripted_goal_train.lance
+
+arms:
+  conditional:
+    allocation:
+      mode: conditional
+      variance_target: 0.20
+      variance_weight: 1.0
+      covariance_weight: 0.01
+      local_rank_weight: 0.0
+
+  local_rank:
+    allocation:
+      mode: local_rank
+      variance_weight: 0.0
+      covariance_weight: 0.0
+      local_rank_target: 8.0
+      local_rank_weight: 0.10
+      neighbors: 16
+
+  hybrid:
+    allocation:
+      mode: hybrid
+      variance_target: 0.20
+      variance_weight: 1.0
+      covariance_weight: 0.01
+      local_rank_target: 8.0
+      local_rank_weight: 0.10
+      neighbors: 16

@@ -135,7 +135,11 @@ def write_summary(spec: runner.RunSpec, results_dir: str) -> None:
     final: Dict[str, float] = {}
     for row in rows:
         for key, value in row.items():
-            if key in ("fit/pred_loss", "eval/success_rate") or key.startswith("pair/"):
+            if (
+                key in ("fit/pred_loss", "fit/allocation_loss",
+                        "fit/local_effective_rank", "eval/success_rate")
+                or key.startswith("pair/")
+            ):
                 final[f"final_{key}"] = value
     steps = [r["step"] for r in rows if isinstance(r.get("step"), int)]
     results_io.write_summary(run_dir, {
