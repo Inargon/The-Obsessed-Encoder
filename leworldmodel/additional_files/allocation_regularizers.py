@@ -120,7 +120,14 @@ class AllocationRegularizer(nn.Module):
         spectral_mass = eigenvalues.sum(dim=-1, keepdim=True)
         tiny = torch.finfo(eigenvalues.dtype).tiny
         probabilities = eigenvalues / spectral_mass.clamp_min(tiny)
-        entropy = -torch.xlogy(probabilities, probabilities).sum(dim=-1)
+        # A centered k-neighborhood always has at least one exact zero
+        # eigenvalue. ``xlogy(p, p)`` has the right forward limit at p=0 but
+        # its backward derivative is singular there. Clamp only the logarithm
+        # argument: zero directions still carry zero probability/mass, while
+        # the gradient remains finite and the estimate stays scale-invariant.
+        entropy = -(
+            probabilities * probabilities.clamp_min(self.eps).log()
+        ).sum(dim=-1)
         effective_rank = torch.where(
             spectral_mass.squeeze(-1) > tiny,
             entropy.exp(),
