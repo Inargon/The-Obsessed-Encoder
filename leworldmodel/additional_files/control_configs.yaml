@@ -15,6 +15,15 @@ common_eval_overrides:
   - +eval.tag_size=5
 
 arms:
+  direct_reachability:
+    control:
+      mode: direct_reachability
+      max_horizon: 1
+      hidden_dim: 256
+      inverse_weight: 1.0
+      reachability_weight: 0.1
+      temperature: 0.1
+
   multi_horizon_idm:
     control:
       mode: multi_horizon_idm

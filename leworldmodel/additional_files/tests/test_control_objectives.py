@@ -89,3 +89,27 @@ def test_control_objective_runs_under_bfloat16_autocast():
 
     assert torch.isfinite(terms["control_loss"])
     assert emb.grad is not None and torch.isfinite(emb.grad).all()
+
+
+def test_direct_reachability_shapes_the_unprojected_embedding():
+    emb, actions, pred_emb = _inputs()
+    objective = ControlObjective(
+        embed_dim=12,
+        action_dim=2,
+        mode="direct_reachability",
+        max_horizon=1,
+        reachability_weight=0.1,
+    )
+
+    terms = objective(emb, actions, pred_emb)
+    terms["control_loss"].backward()
+
+    assert terms["inverse_horizon_1_loss"] > 0
+    assert terms["reachability_loss"] > 0
+    assert 0 <= terms["reachability_accuracy"] <= 1
+    assert emb.grad is not None and torch.isfinite(emb.grad).all()
+    assert pred_emb.grad is not None and torch.isfinite(pred_emb.grad).all()
+    # No learned reachability projection exists to hide the signal from the
+    # embedding used by downstream planning.
+    assert len(objective.reach_queries) == 0
+    assert not any("reach_key" in name for name, _ in objective.named_parameters())

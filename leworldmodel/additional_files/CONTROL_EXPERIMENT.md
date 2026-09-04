@@ -3,6 +3,10 @@
 The earlier one-step IDM established that action-relevant supervision resists
 the episode-colour shortcut. This follow-up compares two stronger objectives:
 
+- `direct_reachability`: combine the proven one-step IDM with same-episode
+  endpoint contrast directly in the planner-facing embedding. There is no
+  learned reachability projection head in which to quarantine the signal.
+
 - `multi_horizon_idm`: recover the mean control over lags of 1--3 sampled
   frames (5--15 environment steps with the PushT frameskip). Exact long action
   sequences are deliberately not regressed because endpoints do not uniquely

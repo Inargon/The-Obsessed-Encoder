@@ -28,7 +28,7 @@ class ControlObjective(nn.Module):
     endpoint among hard negatives from the same episode.
     """
 
-    MODES = {"multi_horizon_idm", "masked_reachability"}
+    MODES = {"multi_horizon_idm", "masked_reachability", "direct_reachability"}
 
     def __init__(
         self,
@@ -71,11 +71,19 @@ class ControlObjective(nn.Module):
             str(h): _mlp(2 * embed_dim, hidden_dim, action_dim)
             for h in range(1, max_horizon + 1)
         })
-        self.reach_queries = nn.ModuleDict({
-            str(h): _mlp(embed_dim + h * action_dim, hidden_dim, embed_dim)
-            for h in range(1, max_horizon + 1)
-        })
-        self.reach_key = _mlp(embed_dim, hidden_dim, embed_dim)
+        # Learned query/key heads are used only by the masked ablation. The
+        # direct method below intentionally has no projection head: its
+        # contrastive margins must be realized in the embedding consumed by
+        # the planner itself, not quarantined in a small auxiliary subspace.
+        if mode == "masked_reachability":
+            self.reach_queries = nn.ModuleDict({
+                str(h): _mlp(embed_dim + h * action_dim, hidden_dim, embed_dim)
+                for h in range(1, max_horizon + 1)
+            })
+            self.reach_key = _mlp(embed_dim, hidden_dim, embed_dim)
+        else:
+            self.reach_queries = nn.ModuleDict()
+            self.reach_key = nn.Identity()
 
     @property
     def uses_mask(self) -> bool:
@@ -192,6 +200,28 @@ class ControlObjective(nn.Module):
         reachability_accuracy = (
             torch.stack(reach_correct).mean().detach() if reach_correct else zero.detach()
         )
+        if self.mode == "direct_reachability" and pred_emb is not None:
+            direct_terms = []
+            direct_correct = []
+            length = min(pred_emb.size(1), emb.size(1) - 1)
+            keys = F.normalize(emb, dim=-1)
+            for time_index in range(length):
+                query = F.normalize(pred_emb[:, time_index], dim=-1)
+                logits = torch.einsum("bd,btd->bt", query, keys) / self.temperature
+                target_index = torch.full(
+                    (emb.size(0),),
+                    time_index + 1,
+                    device=emb.device,
+                    dtype=torch.long,
+                )
+                direct_terms.append(F.cross_entropy(logits, target_index))
+                direct_correct.append(
+                    (logits.argmax(dim=-1) == target_index).float().mean()
+                )
+            if direct_terms:
+                reachability_loss = torch.stack(direct_terms).mean()
+                reachability_accuracy = torch.stack(direct_correct).mean().detach()
+
         total = self.inverse_weight * inverse_loss
         if self.mode == "masked_reachability":
             total = (
@@ -199,6 +229,8 @@ class ControlObjective(nn.Module):
                 + self.cycle_weight * cycle_loss
                 + self.reachability_weight * reachability_loss
             )
+        elif self.mode == "direct_reachability":
+            total = total + self.reachability_weight * reachability_loss
         return {
             "control_loss": total,
             "inverse_dynamics_loss": inverse_loss,
