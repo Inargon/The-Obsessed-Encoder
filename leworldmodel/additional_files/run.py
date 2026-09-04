@@ -142,6 +142,7 @@ def write_summary(spec: runner.RunSpec, results_dir: str) -> None:
                         "fit/reachability_loss", "fit/reachability_accuracy",
                         "eval/success_rate")
                 or key.startswith("pair/")
+                or key.startswith("fit/inverse_horizon_")
             ):
                 final[f"final_{key}"] = value
     steps = [r["step"] for r in rows if isinstance(r.get("step"), int)]

@@ -25,6 +25,7 @@ def test_multi_horizon_idm_has_finite_gradients():
     terms["control_loss"].backward()
 
     assert terms["inverse_dynamics_loss"] > 0
+    assert all(terms[f"inverse_horizon_{h}_loss"] > 0 for h in (1, 2, 3))
     assert terms["action_cycle_loss"] == 0
     assert terms["reachability_loss"] == 0
     assert emb.grad is not None and torch.isfinite(emb.grad).all()

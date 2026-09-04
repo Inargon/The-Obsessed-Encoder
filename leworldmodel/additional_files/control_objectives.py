@@ -65,7 +65,10 @@ class ControlObjective(nn.Module):
         self.temperature = temperature
 
         self.inverse_heads = nn.ModuleDict({
-            str(h): _mlp(2 * embed_dim, hidden_dim, h * action_dim)
+            # At longer lags, exact action sequences are not identifiable from
+            # endpoints (many paths share an endpoint). Predict the mean
+            # control over the interval; h=1 remains the original IDM target.
+            str(h): _mlp(2 * embed_dim, hidden_dim, action_dim)
             for h in range(1, max_horizon + 1)
         })
         self.reach_queries = nn.ModuleDict({
@@ -122,18 +125,24 @@ class ControlObjective(nn.Module):
             }
 
         inverse_terms = []
+        inverse_by_horizon = {}
         reach_terms = []
         reach_correct = []
         for horizon in range(1, max_horizon + 1):
             start = emb[:, :-horizon]
             end = emb[:, horizon:]
             target_actions = self._action_chunk(actions, horizon)
+            target_mean_action = target_actions.reshape(
+                *target_actions.shape[:-1], horizon, self.action_dim
+            ).mean(dim=-2)
 
             masked_start, masked_end = self._paired_mask(start, end)
             predicted_actions = self.inverse_heads[str(horizon)](
                 torch.cat((masked_start, masked_end), dim=-1)
             )
-            inverse_terms.append(F.smooth_l1_loss(predicted_actions, target_actions))
+            inverse_term = F.smooth_l1_loss(predicted_actions, target_mean_action)
+            inverse_terms.append(inverse_term)
+            inverse_by_horizon[f"inverse_horizon_{horizon}_loss"] = inverse_term
 
             if self.mode == "masked_reachability":
                 for time_index in range(emb.size(1) - horizon):
@@ -196,4 +205,5 @@ class ControlObjective(nn.Module):
             "action_cycle_loss": cycle_loss,
             "reachability_loss": reachability_loss,
             "reachability_accuracy": reachability_accuracy,
+            **inverse_by_horizon,
         }

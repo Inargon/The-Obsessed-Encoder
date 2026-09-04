@@ -3,8 +3,10 @@
 The earlier one-step IDM established that action-relevant supervision resists
 the episode-colour shortcut. This follow-up compares two stronger objectives:
 
-- `multi_horizon_idm`: recover action chunks spanning 1--3 sampled frames
-  (5--15 environment steps with the PushT frameskip).
+- `multi_horizon_idm`: recover the mean control over lags of 1--3 sampled
+  frames (5--15 environment steps with the PushT frameskip). Exact long action
+  sequences are deliberately not regressed because endpoints do not uniquely
+  determine the path between them.
 - `masked_reachability`: add shared random-subspace masking, an action cycle
   through the JEPA predictor, and endpoint classification against negatives
   drawn from the same episode.

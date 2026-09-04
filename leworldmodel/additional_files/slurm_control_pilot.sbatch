@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=oe-control-pilot
 #SBATCH --partition=gpu_shared
-#SBATCH --gres=gpu:2
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=96G
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
 #SBATCH --time=02:00:00
 #SBATCH --output=slurm-%x-%j.out
 
@@ -21,7 +21,8 @@ mkdir -p "$SPT_CACHE_DIR" "$TMPDIR"
 cd "$repo_root/leworldmodel"
 
 "$python_bin" additional_files/run_control.py \
+  --configs multi_horizon_idm \
   --seeds 1 \
-  --gpus 0,1 \
-  --results-dir "$repo_root/leworldmodel/results/control-pilot" \
-  --extra-opts '+trainer.max_steps=500 +trainer.log_every_n_steps=10 ++eval.every_n_steps=100000 ++pair.every_n_steps=100000'
+  --gpus 0 \
+  --results-dir "$repo_root/leworldmodel/results/control-pilot-v2" \
+  --extra-opts '+trainer.max_steps=500 +trainer.log_every_n_steps=10 ++eval.every_n_steps=100000 ++pair.every_n_steps=500'
