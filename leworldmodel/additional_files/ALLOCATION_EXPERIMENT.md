@@ -31,7 +31,7 @@ shake out all three methods cheaply before the full campaign:
 ```bash
 python additional_files/run_allocations.py \
   --seeds 1 --gpus 0 \
-  --extra-opts '+trainer.max_steps=20 +eval.every_n_steps=100000 +pair.every_n_steps=100000'
+  --extra-opts '+trainer.max_steps=20 ++eval.every_n_steps=100000 ++pair.every_n_steps=100000'
 ```
 
 Inspect the exact commands without running them:
