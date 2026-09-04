@@ -43,6 +43,11 @@ python additional_files/run_allocations.py --seeds 1 --gpus 0 --dry-run
 Results default to `leworldmodel/results/allocation/`. Override with the
 `RESULTS_DIR` environment variable or `--results-dir`.
 
+The original reproduction figure factory is skipped because it assumes the
+published four-arm grid and tries to load RandGoal. Allocation runs retain the
+complete `metrics.jsonl` streams; a dedicated comparison plot is produced only
+after the three methods pass the shakeout.
+
 ## Logged diagnostics
 
 Alongside prediction loss, pair similarity, and planning success, the new arms

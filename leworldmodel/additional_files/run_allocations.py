@@ -41,6 +41,12 @@ def main() -> int:
     base_runner.CONFIGS_YAML = CONFIG_PATH
     base_runner.CASE = "lewm-allocation"
     base_runner.load_configs = load_allocation_configs
+    # The reproduction figure factory assumes the original four arms and also
+    # loads the RandGoal dataset for its montage. This grid has neither, so a
+    # successful allocation campaign must not fail in an unrelated old plot.
+    base_runner.render_figures = lambda args: print(
+        "[figures] skipped for allocation grid; metrics.jsonl is the source of truth"
+    )
     os.environ.setdefault("RESULTS_DIR", "./results/allocation")
     return base_runner.main()
 
