@@ -172,3 +172,13 @@ resume all optimizer, scheduler, and logging state from the pilot checkpoint.
 This result directly supports the proposed Enigma trade-off: optimizing
 absolute latent prediction more strongly can improve prediction loss while
 reducing the task utility of the learned representation.
+
+### Conflict-aware prediction gradients (separate full-run branch)
+
+Branch `experiment/conflict-aware-prediction` retains the promoted pred03 arm
+and changes only how its prediction gradient enters the encoder. Per sample,
+the component of the representation-level prediction gradient that points
+opposite the control gradient is projected out. The prediction head still
+receives the full prediction gradient, and aligned encoder gradients remain
+unchanged. The run logs gradient cosine, conflict fraction, and removed
+fraction. A full seed-0 run follows a 20-step gradient smoke check.
