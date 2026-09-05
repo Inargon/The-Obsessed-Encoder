@@ -37,7 +37,11 @@ def lejepa_forward(self, batch, stage, cfg):
     emb = output["emb"]  # (B, T, D)
     act_emb = output["act_emb"]
 
-    ctx_emb = emb[:, :ctx_len]
+    # An optional action-conditioned patch readout augments only predictor
+    # context. Targets, SIGReg, control heads, and goal costs remain in the
+    # ordinary global embedding space.
+    predictor_emb = output.get("routed_emb", emb)
+    ctx_emb = predictor_emb[:, :ctx_len]
     ctx_act = act_emb[:, : ctx_len]
 
     tgt_emb = emb[:, n_preds:] # label
@@ -77,6 +81,8 @@ def lejepa_forward(self, batch, stage, cfg):
             "reachability_action_margin",
         }
     }
+    if self.model.action_router is not None:
+        metrics_dict[f"{stage}/action_router_gate"] = self.model.action_router.gate.detach()
     self.log_dict(metrics_dict, on_step=True, sync_dist=True)
     return output
 

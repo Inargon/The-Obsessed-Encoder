@@ -172,3 +172,16 @@ resume all optimizer, scheduler, and logging state from the pilot checkpoint.
 This result directly supports the proposed Enigma trade-off: optimizing
 absolute latent prediction more strongly can improve prediction loss while
 reducing the task utility of the learned representation.
+
+### Action-conditioned patch routing (separate full-run branch)
+
+Branch `experiment/action-token-routing` tests an architectural alternative to
+asking one global CLS token to retain every task-relevant detail. For each
+candidate action, a four-head query reads the ViT patch tokens and adds a
+bounded residual to the observed context consumed by the predictor. Prediction
+targets and goal embeddings remain ordinary global latents, so the existing
+CEM cost remains comparable. The arm retains the promoted `pred_weight=0.3`,
+full-sequence IDM, masking, action cycle, and reachability losses; only the
+predictor readout changes. Run seed 0 for the full ten epochs after a 20-step
+shape/gradient smoke check. This is an architectural bet and is not evidence
+until planning success is measured.

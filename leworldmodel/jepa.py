@@ -17,6 +17,7 @@ class JEPA(nn.Module):
         action_encoder,
         projector=None,
         pred_proj=None,
+        action_router=None,
     ):
         super().__init__()
 
@@ -25,6 +26,7 @@ class JEPA(nn.Module):
         self.action_encoder = action_encoder
         self.projector = projector or nn.Identity()
         self.pred_proj = pred_proj or nn.Identity()
+        self.action_router = action_router
 
     def encode(self, info):
         """Encode observations and actions into embeddings.
@@ -41,6 +43,16 @@ class JEPA(nn.Module):
 
         if "action" in info:
             info["act_emb"] = self.action_encoder(info["action"])
+
+        if self.action_router is not None:
+            patches = rearrange(
+                output.last_hidden_state[:, 1:], "(b t) p d -> b t p d", b=b
+            )
+            info["patch_emb"] = patches
+            if "act_emb" in info:
+                info["routed_emb"] = self.action_router(
+                    info["emb"], patches, info["act_emb"]
+                )
 
         return info
 
@@ -76,7 +88,20 @@ class JEPA(nn.Module):
         # copy and encode initial info dict
         _init = {k: v[:, 0] for k, v in info.items() if torch.is_tensor(v)}
         _init = self.encode(_init)
-        emb = info["emb"] = _init["emb"].unsqueeze(1).expand(B, S, -1, -1)
+        base_emb = _init["emb"]
+        if self.action_router is not None:
+            candidate_act_emb = self.action_encoder(
+                rearrange(act_0, "b s t d -> (b s) t d")
+            )
+            candidate_act_emb = rearrange(
+                candidate_act_emb, "(b s) t d -> b s t d", b=B, s=S
+            )
+            emb = self.action_router.forward_candidates(
+                base_emb, _init["patch_emb"], candidate_act_emb
+            )
+        else:
+            emb = base_emb.unsqueeze(1).expand(B, S, -1, -1)
+        info["emb"] = emb
         _init = {k: detach_clone(v) for k, v in _init.items()}
 
         # flatten batch and sample dimensions for rollout

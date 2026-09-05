@@ -99,3 +99,16 @@ arms:
       - +loss.pred_weight=0.0
     control:
       <<: *masked_sequence_control
+
+  # The target and CEM goal stay in global CLS space; only the predictor's
+  # observed context receives an action-conditioned patch-token residual.
+  action_patch_pred03:
+    overrides:
+      - +loss.pred_weight=0.3
+      - +model.action_router._target_=additional_files.action_router.ActionPatchRouter
+      - +model.action_router.embed_dim=192
+      - +model.action_router.heads=4
+      - +model.action_router.query_mode=action
+      - +model.action_router.residual_scale=0.5
+    control:
+      <<: *masked_sequence_control
