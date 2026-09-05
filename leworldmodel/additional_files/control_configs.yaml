@@ -82,6 +82,18 @@ arms:
     control:
       <<: *masked_sequence_control
 
+  masked_sequence_pred05:
+    overrides:
+      - +loss.pred_weight=0.5
+    control:
+      <<: *masked_sequence_control
+
+  masked_sequence_pred07:
+    overrides:
+      - +loss.pred_weight=0.7
+    control:
+      <<: *masked_sequence_control
+
   masked_sequence_pred0:
     overrides:
       - +loss.pred_weight=0.0

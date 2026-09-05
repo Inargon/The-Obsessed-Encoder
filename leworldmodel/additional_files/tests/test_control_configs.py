@@ -13,6 +13,8 @@ def test_control_grid_has_relation_core_sweep():
         "masked_reachability",
         "masked_sequence_pred1",
         "masked_sequence_pred03",
+        "masked_sequence_pred05",
+        "masked_sequence_pred07",
         "masked_sequence_pred0",
     }
     for name, arm in config["arms"].items():
@@ -27,4 +29,6 @@ def test_control_grid_has_relation_core_sweep():
 
     assert "+loss.pred_weight=1.0" in config["arms"]["masked_sequence_pred1"]["overrides"]
     assert "+loss.pred_weight=0.3" in config["arms"]["masked_sequence_pred03"]["overrides"]
+    assert "+loss.pred_weight=0.5" in config["arms"]["masked_sequence_pred05"]["overrides"]
+    assert "+loss.pred_weight=0.7" in config["arms"]["masked_sequence_pred07"]["overrides"]
     assert "+loss.pred_weight=0.0" in config["arms"]["masked_sequence_pred0"]["overrides"]

@@ -126,7 +126,30 @@ The next several days prioritize planning success on tagged PushT. The current
 thresholds are the historical one-step IDM result (0.78) and seed-0 MSID peak
 (0.82); clean performance is approximately 0.88--0.94 depending on the
 evaluation run. Mechanistic audits remain important, but should not delay
-short, controlled pilots that can raise success. The immediate pilot tests
-full-sequence masked MSID at absolute-prediction weights 1.0, 0.3, and 0.0,
-one seed each, for 10000 pilot steps. Promote only an arm that both uses actions under the shuffle
-intervention and improves planner success; pair geometry alone is insufficient.
+short, controlled pilots that can raise success. The completed boundary pilot
+tested full-sequence masked MSID at absolute-prediction weights 1.0, 0.3, and
+0.0. The immediate follow-up tests the interior weights 0.3, 0.5, and 0.7 for
+10000 steps, one seed each. Promote only an arm that both uses actions under
+the shuffle intervention and improves planner success; pair geometry alone is
+insufficient.
+
+### Absolute-prediction boundary pilot, seed 0 (job 85558)
+
+All three full-sequence masked-MSID arms completed 2000 steps. Planning at this
+point was still near its known uninformative early baseline: weight 1.0 scored
+0.00, weight 0.3 scored 0.04, and weight 0.0 scored 0.02. The representation
+and optimization metrics nevertheless gave a clear boundary trade-off:
+
+- weight 1.0: prediction loss 0.0367; same-content 0.188; same-tag 0.775;
+  reachability accuracy 0.465 versus 0.303 with shuffled actions;
+- weight 0.3: prediction loss 0.2776; same-content 0.776; same-tag 0.189;
+  control loss improved 0.710 to 0.529; reachability accuracy 0.406 versus
+  0.368 shuffled, with a positive 0.197 action margin;
+- weight 0.0: prediction loss diverged to 1.944; same-content 0.967; same-tag
+  0.009; reachability accuracy 0.413 versus 0.368 shuffled.
+
+Thus absolute prediction weight 1.0 re-established the episode-tag shortcut,
+whereas removing it entirely destroyed the predictive world model. Weight 0.3
+was the only useful boundary candidate but showed weak action reliance. The
+next 10000-step pilot scans weights 0.3, 0.5, and 0.7; the 0 and 1 boundaries
+should not be extended.

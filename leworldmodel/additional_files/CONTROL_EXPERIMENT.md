@@ -25,13 +25,24 @@ provided by the project show that this does not exceed the 0.78 one-step IDM or
 0.82 seed-0 MSID result. They also show that removing tag geometry is neither
 necessary nor sufficient for planning success.
 
-The next pilot therefore tests a narrower hypothesis. All three arms use the
+The first boundary pilot therefore tested a narrower hypothesis. All three arms use the
 historical MSID target (recover the complete action sequence at horizons 1--3)
 and differ only in the coefficient on absolute JEPA prediction:
 
 - `masked_sequence_pred1`: prediction weight 1.0;
 - `masked_sequence_pred03`: prediction weight 0.3;
 - `masked_sequence_pred0`: prediction weight 0.0.
+
+At step 2000, weight 1.0 had already flipped to tag-dominant geometry
+(`same_content=0.188`, `same_tag=0.775`), while weight 0.0 preserved almost
+perfect content geometry but its prediction loss rose to 1.94. Weight 0.3 was
+the only useful boundary candidate (`same_content=0.776`, `same_tag=0.189`),
+with improving control loss and 0.04 success. The action intervention was
+strongest at weight 1.0 (accuracy 0.465 versus 0.303 shuffled); weight 0.3 had
+a positive action margin but only a small accuracy gap (0.406 versus 0.368).
+
+The 10000-step follow-up therefore scans only the interior weights 0.3, 0.5,
+and 0.7. It does not spend more compute on either failed boundary.
 
 Each arm also logs `reachability_shuffled_accuracy`: the reachability query is
 given another sample's actions while its start, candidate endpoints, horizon,
@@ -55,7 +66,7 @@ sbatch leworldmodel/additional_files/slurm_control_pilot.sbatch
 The original control pilot and two selected full seed-0 runs are complete;
 their outcomes are recorded in `EXPERIMENT_LOG_2026-09-05.md`.
 
-Run the 10000-step, three-arm prediction-weight sweep with:
+Run the 10000-step, three-arm interior prediction-weight sweep with:
 
 ```bash
 sbatch leworldmodel/additional_files/slurm_masked_pred_sweep.sbatch
