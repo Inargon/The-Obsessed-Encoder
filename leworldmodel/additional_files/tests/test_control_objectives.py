@@ -31,6 +31,26 @@ def test_multi_horizon_idm_has_finite_gradients():
     assert emb.grad is not None and torch.isfinite(emb.grad).all()
 
 
+def test_sequence_inverse_target_predicts_complete_action_chunks():
+    emb, actions, pred_emb = _inputs()
+    objective = ControlObjective(
+        embed_dim=12,
+        action_dim=2,
+        mode="multi_horizon_idm",
+        max_horizon=3,
+        inverse_target="sequence",
+    )
+
+    terms = objective(emb, actions, pred_emb)
+    terms["control_loss"].backward()
+
+    assert objective.inverse_heads["1"][-1].out_features == 2
+    assert objective.inverse_heads["2"][-1].out_features == 4
+    assert objective.inverse_heads["3"][-1].out_features == 6
+    assert torch.isfinite(terms["control_loss"])
+    assert emb.grad is not None and torch.isfinite(emb.grad).all()
+
+
 def test_masked_reachability_trains_encoder_predictor_and_heads():
     emb, actions, pred_emb = _inputs()
     objective = ControlObjective(
@@ -53,6 +73,23 @@ def test_masked_reachability_trains_encoder_predictor_and_heads():
         parameter.grad is not None and torch.isfinite(parameter.grad).all()
         for parameter in objective.parameters()
     )
+
+
+def test_masked_reachability_reports_action_shuffle_diagnostics():
+    emb, actions, pred_emb = _inputs()
+    objective = ControlObjective(
+        embed_dim=12,
+        action_dim=2,
+        mode="masked_reachability",
+        max_horizon=3,
+        inverse_target="sequence",
+        action_shuffle_diagnostics=True,
+    )
+
+    terms = objective(emb, actions, pred_emb)
+
+    assert 0 <= terms["reachability_shuffled_accuracy"] <= 1
+    assert torch.isfinite(terms["reachability_action_margin"])
 
 
 def test_episode_constant_embedding_cannot_solve_within_episode_reachability():

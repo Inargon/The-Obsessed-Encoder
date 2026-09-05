@@ -56,3 +56,34 @@ arms:
       reachability_weight: 0.1
       mask_keep_prob: 0.5
       temperature: 0.1
+
+  # Relation-core sweep. Unlike the first campaign, these arms reproduce the
+  # historical MSID target (the complete action sequence, not its mean) and
+  # change only the weight of absolute JEPA prediction. The shuffled-action
+  # metrics test whether reachability actually consumes its action input.
+  masked_sequence_pred1:
+    overrides:
+      - +loss.pred_weight=1.0
+    control: &masked_sequence_control
+      mode: masked_reachability
+      max_horizon: 3
+      hidden_dim: 256
+      inverse_target: sequence
+      inverse_weight: 1.0
+      cycle_weight: 0.5
+      reachability_weight: 0.1
+      mask_keep_prob: 0.5
+      temperature: 0.1
+      action_shuffle_diagnostics: true
+
+  masked_sequence_pred03:
+    overrides:
+      - +loss.pred_weight=0.3
+    control:
+      <<: *masked_sequence_control
+
+  masked_sequence_pred0:
+    overrides:
+      - +loss.pred_weight=0.0
+    control:
+      <<: *masked_sequence_control

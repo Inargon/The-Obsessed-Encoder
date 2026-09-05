@@ -46,7 +46,12 @@ def lejepa_forward(self, batch, stage, cfg):
     # LeWM loss
     output["pred_loss"] = (pred_emb - tgt_emb).pow(2).mean()
     output["sigreg_loss"]= self.sigreg(emb.transpose(0, 1))
-    output["loss"] = output["pred_loss"] + lambd * output["sigreg_loss"]  
+    # Opt-in relation-core ablation. A value below one tests whether the
+    # absolute next-latent objective is what keeps paying episode-constant
+    # shortcuts even when a reachability objective is present. Absent from
+    # upstream configs, this remains exactly 1.0.
+    pred_weight = float(cfg.loss.get("pred_weight", 1.0))
+    output["loss"] = pred_weight * output["pred_loss"] + lambd * output["sigreg_loss"]
 
     # Opt-in capacity-allocation experiment. The published arms have no
     # ``loss.allocation`` block and therefore retain the exact upstream loss.
@@ -65,7 +70,12 @@ def lejepa_forward(self, batch, stage, cfg):
     metrics_dict = {
         f"{stage}/{k}": v.detach()
         for k, v in output.items()
-        if "loss" in k or k in {"local_effective_rank", "reachability_accuracy"}
+        if "loss" in k or k in {
+            "local_effective_rank",
+            "reachability_accuracy",
+            "reachability_shuffled_accuracy",
+            "reachability_action_margin",
+        }
     }
     self.log_dict(metrics_dict, on_step=True, sync_dist=True)
     return output

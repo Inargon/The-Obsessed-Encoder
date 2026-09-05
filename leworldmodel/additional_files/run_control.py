@@ -28,6 +28,7 @@ def load_control_configs() -> dict:
         for key, value in method["control"].items():
             hydra_value = str(value).lower() if isinstance(value, bool) else value
             overrides.append(f"+loss.control.{key}={hydra_value}")
+        overrides.extend(method.get("overrides", []))
         arms[name] = {
             "overrides": overrides,
             "pair_suites": ["colour"],

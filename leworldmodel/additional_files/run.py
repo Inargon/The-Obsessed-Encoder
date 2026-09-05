@@ -140,6 +140,8 @@ def write_summary(spec: runner.RunSpec, results_dir: str) -> None:
                         "fit/local_effective_rank", "fit/control_loss",
                         "fit/inverse_dynamics_loss", "fit/action_cycle_loss",
                         "fit/reachability_loss", "fit/reachability_accuracy",
+                        "fit/reachability_shuffled_accuracy",
+                        "fit/reachability_action_margin",
                         "eval/success_rate")
                 or key.startswith("pair/")
                 or key.startswith("fit/inverse_horizon_")

@@ -48,6 +48,8 @@ class ControlObjective(nn.Module):
         reachability_weight: float = 0.1,
         mask_keep_prob: float = 0.5,
         temperature: float = 0.1,
+        inverse_target: str = "mean",
+        action_shuffle_diagnostics: bool = False,
         context_dim: int = 32,
         context_weight: float = 0.1,
         static_leak_weight: float = 0.1,
@@ -65,6 +67,8 @@ class ControlObjective(nn.Module):
             raise ValueError("mask_keep_prob must be in (0, 1]")
         if temperature <= 0.0:
             raise ValueError("temperature must be positive")
+        if inverse_target not in {"mean", "sequence"}:
+            raise ValueError("inverse_target must be 'mean' or 'sequence'")
         if mode == "factorized_reachability" and not 0 < context_dim < embed_dim:
             raise ValueError("context_dim must be between zero and embed_dim")
 
@@ -77,6 +81,8 @@ class ControlObjective(nn.Module):
         self.reachability_weight = reachability_weight
         self.mask_keep_prob = mask_keep_prob
         self.temperature = temperature
+        self.inverse_target = inverse_target
+        self.action_shuffle_diagnostics = action_shuffle_diagnostics
         self.context_dim = context_dim if mode == "factorized_reachability" else 0
         self.context_weight = context_weight
         self.static_leak_weight = static_leak_weight
@@ -89,10 +95,14 @@ class ControlObjective(nn.Module):
         self.control_dim = control_dim
 
         self.inverse_heads = nn.ModuleDict({
-            # At longer lags, exact action sequences are not identifiable from
-            # endpoints (many paths share an endpoint). Predict the mean
-            # control over the interval; h=1 remains the original IDM target.
-            str(h): _mlp(2 * control_dim, hidden_dim, action_dim)
+            # ``sequence`` reproduces the historical MSID target: recover the
+            # complete h-step action chunk. ``mean`` preserves the first
+            # allocation campaign exactly for reproducibility.
+            str(h): _mlp(
+                2 * control_dim,
+                hidden_dim,
+                action_dim * h if inverse_target == "sequence" else action_dim,
+            )
             for h in range(1, max_horizon + 1)
         })
         # Learned query/key heads are used only by the masked ablation. The
@@ -194,6 +204,8 @@ class ControlObjective(nn.Module):
                 "action_cycle_loss": zero,
                 "reachability_loss": zero,
                 "reachability_accuracy": zero.detach(),
+                "reachability_shuffled_accuracy": zero.detach(),
+                "reachability_action_margin": zero.detach(),
                 "context_consistency_loss": context_consistency,
                 "dynamic_static_leak_loss": dynamic_static,
                 "dynamic_variance_loss": dynamic_variance,
@@ -204,19 +216,24 @@ class ControlObjective(nn.Module):
         inverse_by_horizon = {}
         reach_terms = []
         reach_correct = []
+        shuffled_correct = []
+        action_margins = []
         for horizon in range(1, max_horizon + 1):
             start = control_emb[:, :-horizon]
             end = control_emb[:, horizon:]
             target_actions = self._action_chunk(actions, horizon)
-            target_mean_action = target_actions.reshape(
-                *target_actions.shape[:-1], horizon, self.action_dim
-            ).mean(dim=-2)
+            if self.inverse_target == "sequence":
+                inverse_target = target_actions
+            else:
+                inverse_target = target_actions.reshape(
+                    *target_actions.shape[:-1], horizon, self.action_dim
+                ).mean(dim=-2)
 
             masked_start, masked_end = self._paired_mask(start, end)
             predicted_actions = self.inverse_heads[str(horizon)](
                 torch.cat((masked_start, masked_end), dim=-1)
             )
-            inverse_term = F.smooth_l1_loss(predicted_actions, target_mean_action)
+            inverse_term = F.smooth_l1_loss(predicted_actions, inverse_target)
             inverse_terms.append(inverse_term)
             inverse_by_horizon[f"inverse_horizon_{horizon}_loss"] = inverse_term
 
@@ -249,6 +266,32 @@ class ControlObjective(nn.Module):
                     )
                     reach_terms.append(F.cross_entropy(logits, target_index))
                     reach_correct.append((logits.argmax(dim=-1) == target_index).float().mean())
+                    if self.action_shuffle_diagnostics and emb.size(0) > 1:
+                        # Same start, candidates, horizon and feature mask; only
+                        # the action chunk comes from another episode. If the
+                        # accuracy and target score survive this intervention,
+                        # the reachability head is solving the task without its
+                        # nominal action input.
+                        with torch.no_grad():
+                            shuffled_actions = target_actions[:, time_index].roll(1, dims=0)
+                            shuffled_input = torch.cat((query_start, shuffled_actions), dim=-1)
+                            shuffled_query = F.normalize(
+                                self.reach_queries[str(horizon)](shuffled_input), dim=-1
+                            )
+                            shuffled_logits = (
+                                torch.einsum("bd,btd->bt", shuffled_query, keys)
+                                / self.temperature
+                            )
+                            shuffled_correct.append(
+                                (shuffled_logits.argmax(dim=-1) == target_index)
+                                .float()
+                                .mean()
+                            )
+                            row = torch.arange(emb.size(0), device=emb.device)
+                            action_margins.append(
+                                (logits.detach()[row, target_index]
+                                 - shuffled_logits[row, target_index]).mean()
+                            )
 
         inverse_loss = torch.stack(inverse_terms).mean()
         zero = inverse_loss * 0.0
@@ -267,6 +310,14 @@ class ControlObjective(nn.Module):
         reachability_loss = torch.stack(reach_terms).mean() if reach_terms else zero
         reachability_accuracy = (
             torch.stack(reach_correct).mean().detach() if reach_correct else zero.detach()
+        )
+        reachability_shuffled_accuracy = (
+            torch.stack(shuffled_correct).mean().detach()
+            if shuffled_correct else zero.detach()
+        )
+        reachability_action_margin = (
+            torch.stack(action_margins).mean().detach()
+            if action_margins else zero.detach()
         )
         if self.mode in {"direct_reachability", "factorized_reachability"} and control_pred is not None:
             direct_terms = []
@@ -314,6 +365,8 @@ class ControlObjective(nn.Module):
             "action_cycle_loss": cycle_loss,
             "reachability_loss": reachability_loss,
             "reachability_accuracy": reachability_accuracy,
+            "reachability_shuffled_accuracy": reachability_shuffled_accuracy,
+            "reachability_action_margin": reachability_action_margin,
             "context_consistency_loss": context_consistency,
             "dynamic_static_leak_loss": dynamic_static,
             "dynamic_variance_loss": dynamic_variance,
