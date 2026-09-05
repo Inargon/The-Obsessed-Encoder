@@ -11,7 +11,12 @@ def test_action_router_shapes_and_action_sensitivity():
     actions = torch.randn(2, 4, 12)
 
     first = router(base, patches, actions)
-    second = router(base, patches, actions + 1.0)
+    # A uniform shift is intentionally removed by query LayerNorm. Perturb
+    # only part of the action embedding to test the directional information
+    # that the router is designed to consume.
+    changed_actions = actions.clone()
+    changed_actions[..., :3] += 1.0
+    second = router(base, patches, changed_actions)
 
     assert first.shape == base.shape
     assert not torch.allclose(first, second)
