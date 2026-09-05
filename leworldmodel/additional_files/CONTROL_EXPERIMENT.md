@@ -55,7 +55,7 @@ sbatch leworldmodel/additional_files/slurm_control_pilot.sbatch
 The original control pilot and two selected full seed-0 runs are complete;
 their outcomes are recorded in `EXPERIMENT_LOG_2026-09-05.md`.
 
-Run the 2000-step, three-arm prediction-weight sweep with:
+Run the 10000-step, three-arm prediction-weight sweep with:
 
 ```bash
 sbatch leworldmodel/additional_files/slurm_masked_pred_sweep.sbatch

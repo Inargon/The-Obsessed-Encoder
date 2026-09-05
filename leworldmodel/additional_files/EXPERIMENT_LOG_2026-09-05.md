@@ -128,5 +128,5 @@ thresholds are the historical one-step IDM result (0.78) and seed-0 MSID peak
 evaluation run. Mechanistic audits remain important, but should not delay
 short, controlled pilots that can raise success. The immediate pilot tests
 full-sequence masked MSID at absolute-prediction weights 1.0, 0.3, and 0.0,
-one seed each. Promote only an arm that both uses actions under the shuffle
+one seed each, for 10000 pilot steps. Promote only an arm that both uses actions under the shuffle
 intervention and improves planner success; pair geometry alone is insufficient.

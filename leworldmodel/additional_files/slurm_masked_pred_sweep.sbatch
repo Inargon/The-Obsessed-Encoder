@@ -20,11 +20,12 @@ export PYTHONPATH="$repo_root${PYTHONPATH:+:$PYTHONPATH}"
 mkdir -p "$SPT_CACHE_DIR" "$TMPDIR"
 cd "$repo_root/leworldmodel"
 
-# Three seed-0 arms, not three seeds. 2000 steps gives one planner evaluation
-# and four geometry measurements while remaining a short pilot.
+# Three seed-0 arms, not three seeds. Prior runs were still tied at 0.04 success
+# on step 2000; 10000 steps reaches the first informative part of the learning
+# curve while remaining roughly a one-hour pilot on three L40S GPUs.
 "$python_bin" additional_files/run_control.py \
   --configs masked_sequence_pred1,masked_sequence_pred03,masked_sequence_pred0 \
   --seeds 1 \
   --gpus 0,1,2 \
   --results-dir "$repo_root/leworldmodel/results/masked-pred-sweep" \
-  --extra-opts '+trainer.max_steps=2000 +trainer.log_every_n_steps=10 ++eval.every_n_steps=2000 ++pair.every_n_steps=500 ++checkpoint.every_n_steps=2000'
+  --extra-opts '+trainer.max_steps=10000 +trainer.log_every_n_steps=10 ++eval.every_n_steps=2000 ++pair.every_n_steps=1000 ++checkpoint.every_n_steps=5000'
