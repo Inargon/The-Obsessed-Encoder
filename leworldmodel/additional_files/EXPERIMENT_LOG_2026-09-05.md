@@ -153,3 +153,22 @@ whereas removing it entirely destroyed the predictive world model. Weight 0.3
 was the only useful boundary candidate but showed weak action reliance. The
 next 10000-step pilot scans weights 0.3, 0.5, and 0.7; the 0 and 1 boundaries
 should not be extended.
+
+### Absolute-prediction interior pilot, seed 0 (job 85566)
+
+All three arms completed 10000 steps. Planning success for prediction weights
+0.3, 0.5, and 0.7 was respectively 0.32, 0.24, and 0.16 at step 10000. Only
+weight 0.3 improved at every evaluation (0.06, 0.08, 0.14, 0.26, 0.32).
+Increasing the absolute-prediction weight improved final prediction loss
+(0.065, 0.032, 0.023) while worsening planning and shifting pair geometry from
+content toward tag: weight 0.3 ended at same-content 0.604 versus same-tag
+0.364, whereas weight 0.7 ended at 0.317 versus 0.660. All arms learned to use
+the action in the auxiliary reachability head, so action use alone did not
+explain their planning gap.
+
+Promote only `masked_sequence_pred03`, seed 0, to a clean full 10-epoch run.
+The full run starts from scratch because this LeWM runner does not reliably
+resume all optimizer, scheduler, and logging state from the pilot checkpoint.
+This result directly supports the proposed Enigma trade-off: optimizing
+absolute latent prediction more strongly can improve prediction loss while
+reducing the task utility of the learned representation.
