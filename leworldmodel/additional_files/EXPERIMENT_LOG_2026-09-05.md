@@ -2,34 +2,43 @@
 
 ## Outcome
 
-The first allocation/control candidates did **not** solve the episode-colour
-shortcut. Lower JEPA prediction loss is not counted as success because the
-Obsessed Encoder failure itself produces deceptively low prediction loss.
+The first allocation/control candidates produced mixed results. Lower JEPA
+prediction loss is not counted as success because the Obsessed Encoder failure
+itself produces deceptively low prediction loss. Planner success and the
+same-content versus same-tag signature are recorded separately.
 
 ### Conditional allocation, seed 0 (job 85383)
 
-At step 7100:
+At step 119400:
 
-- prediction loss: 0.03657
-- backbone same-content cosine: 0.30104
-- backbone same-tag cosine: 0.66988
+- prediction loss: 0.00630
+- backbone same-content cosine: 0.32855
+- backbone same-tag cosine: 0.63743
+- latest planner success: 0.56
+- best planner success: 0.64
 
-The reversed similarity ordering (`same_tag > same_content`) is a failure.
+The method restored substantial planning ability without an auxiliary action
+loss, but did not repair the shortcut signature (`same_tag > same_content`).
 
 ### Masked reachability, seed 0
 
-At step 1600--1649:
+Early measurements looked collapsed, but by step 97500 the method showed a
+late representation recovery:
 
-- prediction loss: 0.04515
-- inverse dynamics loss: 0.39174
-- action-cycle loss: 0.12110
-- reachability loss: 1.24709
-- reachability accuracy: 0.40365 (chance is approximately 0.25)
-- backbone same-content cosine: 0.10517
-- backbone same-tag cosine: 0.85586
+- prediction loss: 0.00905
+- inverse dynamics loss: 0.11718
+- action-cycle loss: 0.03047
+- reachability loss: 0.23472
+- reachability accuracy: 0.93359 (chance is approximately 0.25)
+- backbone same-content cosine: 0.47638
+- backbone same-tag cosine: 0.51188
+- latest planner success: 0.64
+- best planner success: 0.70
 
-The auxiliary task learned, but its information was quarantined in a small
-subspace and the planner-facing embedding collapsed even more strongly.
+The early conclusion that the auxiliary task was quarantined was premature.
+The late backbone geometry nearly crossed to `same_content > same_tag`, while
+planner success exceeded the conditional arm. Treat this as the leading
+candidate pending its final checkpoint and repeated seeds.
 
 ### Multi-lag IDM pilot, seed 0 (commit 60971e2)
 
