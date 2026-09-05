@@ -92,3 +92,41 @@ learn a nuisance projector from appearance/tag interventions while preserving
 absolute controllable state for IDM and reachability, rather than subtracting
 each trajectory mean. Before another long run, log same-content and same-tag
 geometry separately for the learned control and nuisance subspaces.
+
+## Decision-causal audit note
+
+A downstream action head can improve imitation performance without making the
+world prediction a causal mediator of the decision. Three claims must remain
+separate:
+
+1. actions are decodable from the latent;
+2. the policy or planner changes when its predicted-future input changes;
+3. that change follows a physically valid counterfactual and causes the
+   corresponding change in the environment.
+
+An eventual zero-training `Decision-Causal Scramble Audit` should therefore
+intervene on future latents while holding the current state fixed. Random
+off-manifold noise is not decisive. The preferred intervention uses valid
+minimal pairs with matched pusher endpoints and divergent T-block outcomes,
+then measures policy change, candidate-ranking change, and the realized
+T-block effect. This is also the appropriate audit for Delta-JEPA-style
+`latent -> action` imitation heads: action decodability alone does not establish
+that a learned world prediction is used for control.
+
+For the current LeWM experiments, the auxiliary IDM/reachability heads are
+representation regularizers and are absent at deployment; CEM consumes the
+world-model prediction. The newly logged `reachability_shuffled_accuracy` and
+`reachability_action_margin` test whether the auxiliary reachability head uses
+its action input, but they do not by themselves establish end-to-end decision
+causality through CEM.
+
+## Near-term priority
+
+The next several days prioritize planning success on tagged PushT. The current
+thresholds are the historical one-step IDM result (0.78) and seed-0 MSID peak
+(0.82); clean performance is approximately 0.88--0.94 depending on the
+evaluation run. Mechanistic audits remain important, but should not delay
+short, controlled pilots that can raise success. The immediate pilot tests
+full-sequence masked MSID at absolute-prediction weights 1.0, 0.3, and 0.0,
+one seed each. Promote only an arm that both uses actions under the shuffle
+intervention and improves planner success; pair geometry alone is insufficient.
