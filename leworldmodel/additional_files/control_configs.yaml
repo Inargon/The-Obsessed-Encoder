@@ -15,6 +15,21 @@ common_eval_overrides:
   - +eval.tag_size=5
 
 arms:
+  factorized_reachability:
+    control:
+      mode: factorized_reachability
+      max_horizon: 1
+      hidden_dim: 256
+      inverse_weight: 1.0
+      reachability_weight: 0.1
+      temperature: 0.1
+      context_dim: 32
+      context_weight: 0.1
+      static_leak_weight: 0.1
+      dynamic_variance_target: 0.2
+      dynamic_variance_weight: 1.0
+      dynamic_covariance_weight: 0.01
+
   direct_reachability:
     control:
       mode: direct_reachability

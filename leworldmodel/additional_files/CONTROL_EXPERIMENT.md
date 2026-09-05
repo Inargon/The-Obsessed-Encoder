@@ -3,6 +3,10 @@
 The earlier one-step IDM established that action-relevant supervision resists
 the episode-colour shortcut. This follow-up compares two stronger objectives:
 
+- `factorized_reachability`: reserve a 32-dimensional context block and apply
+  direct reachability, IDM, conditional variance/decorrelation, and a
+  scale-invariant static-leak penalty to the remaining dynamic block.
+
 - `direct_reachability`: combine the proven one-step IDM with same-episode
   endpoint contrast directly in the planner-facing embedding. There is no
   learned reachability projection head in which to quarantine the signal.

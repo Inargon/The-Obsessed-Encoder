@@ -113,3 +113,55 @@ def test_direct_reachability_shapes_the_unprojected_embedding():
     # embedding used by downstream planning.
     assert len(objective.reach_queries) == 0
     assert not any("reach_key" in name for name, _ in objective.named_parameters())
+
+
+def test_factorized_reachability_penalizes_static_leak_in_dynamic_block():
+    torch.manual_seed(12)
+    batch, time, context_dim, dynamic_dim = 8, 4, 4, 8
+    context = torch.randn(batch, 1, context_dim).expand(-1, time, -1)
+    static_dynamic = torch.randn(batch, 1, dynamic_dim).expand(-1, time, -1)
+    changing_dynamic = torch.randn(batch, time, dynamic_dim)
+    actions = torch.randn(batch, time, 2)
+    pred = torch.randn(batch, time - 1, context_dim + dynamic_dim)
+    objective = ControlObjective(
+        embed_dim=context_dim + dynamic_dim,
+        action_dim=2,
+        mode="factorized_reachability",
+        max_horizon=1,
+        context_dim=context_dim,
+    )
+
+    static_terms = objective(
+        torch.cat((context, static_dynamic), dim=-1), actions, pred
+    )
+    changing_terms = objective(
+        torch.cat((context, changing_dynamic), dim=-1), actions, pred
+    )
+
+    assert static_terms["dynamic_static_leak_loss"] > 0.9
+    assert changing_terms["dynamic_static_leak_loss"] < 0.7
+    assert static_terms["context_consistency_loss"] == 0
+
+
+def test_factorized_reachability_has_finite_gradients():
+    emb, actions, pred_emb = _inputs()
+    objective = ControlObjective(
+        embed_dim=12,
+        action_dim=2,
+        mode="factorized_reachability",
+        max_horizon=1,
+        context_dim=4,
+    )
+
+    terms = objective(emb, actions, pred_emb)
+    terms["control_loss"].backward()
+
+    for key in (
+        "context_consistency_loss",
+        "dynamic_static_leak_loss",
+        "dynamic_variance_loss",
+        "dynamic_covariance_loss",
+    ):
+        assert torch.isfinite(terms[key])
+    assert emb.grad is not None and torch.isfinite(emb.grad).all()
+    assert pred_emb.grad is not None and torch.isfinite(pred_emb.grad).all()

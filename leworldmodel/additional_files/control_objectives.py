@@ -28,7 +28,12 @@ class ControlObjective(nn.Module):
     endpoint among hard negatives from the same episode.
     """
 
-    MODES = {"multi_horizon_idm", "masked_reachability", "direct_reachability"}
+    MODES = {
+        "multi_horizon_idm",
+        "masked_reachability",
+        "direct_reachability",
+        "factorized_reachability",
+    }
 
     def __init__(
         self,
@@ -43,6 +48,13 @@ class ControlObjective(nn.Module):
         reachability_weight: float = 0.1,
         mask_keep_prob: float = 0.5,
         temperature: float = 0.1,
+        context_dim: int = 32,
+        context_weight: float = 0.1,
+        static_leak_weight: float = 0.1,
+        dynamic_variance_target: float = 0.2,
+        dynamic_variance_weight: float = 1.0,
+        dynamic_covariance_weight: float = 0.01,
+        eps: float = 1e-4,
     ):
         super().__init__()
         if mode not in self.MODES:
@@ -53,6 +65,8 @@ class ControlObjective(nn.Module):
             raise ValueError("mask_keep_prob must be in (0, 1]")
         if temperature <= 0.0:
             raise ValueError("temperature must be positive")
+        if mode == "factorized_reachability" and not 0 < context_dim < embed_dim:
+            raise ValueError("context_dim must be between zero and embed_dim")
 
         self.mode = mode
         self.embed_dim = embed_dim
@@ -63,12 +77,22 @@ class ControlObjective(nn.Module):
         self.reachability_weight = reachability_weight
         self.mask_keep_prob = mask_keep_prob
         self.temperature = temperature
+        self.context_dim = context_dim if mode == "factorized_reachability" else 0
+        self.context_weight = context_weight
+        self.static_leak_weight = static_leak_weight
+        self.dynamic_variance_target = dynamic_variance_target
+        self.dynamic_variance_weight = dynamic_variance_weight
+        self.dynamic_covariance_weight = dynamic_covariance_weight
+        self.eps = eps
+
+        control_dim = embed_dim - self.context_dim
+        self.control_dim = control_dim
 
         self.inverse_heads = nn.ModuleDict({
             # At longer lags, exact action sequences are not identifiable from
             # endpoints (many paths share an endpoint). Predict the mean
             # control over the interval; h=1 remains the original IDM target.
-            str(h): _mlp(2 * embed_dim, hidden_dim, action_dim)
+            str(h): _mlp(2 * control_dim, hidden_dim, action_dim)
             for h in range(1, max_horizon + 1)
         })
         # Learned query/key heads are used only by the masked ablation. The
@@ -77,10 +101,10 @@ class ControlObjective(nn.Module):
         # the planner itself, not quarantined in a small auxiliary subspace.
         if mode == "masked_reachability":
             self.reach_queries = nn.ModuleDict({
-                str(h): _mlp(embed_dim + h * action_dim, hidden_dim, embed_dim)
+                str(h): _mlp(control_dim + h * action_dim, hidden_dim, control_dim)
                 for h in range(1, max_horizon + 1)
             })
-            self.reach_key = _mlp(embed_dim, hidden_dim, embed_dim)
+            self.reach_key = _mlp(control_dim, hidden_dim, control_dim)
         else:
             self.reach_queries = nn.ModuleDict()
             self.reach_key = nn.Identity()
@@ -121,15 +145,59 @@ class ControlObjective(nn.Module):
         if actions.size(-1) != self.action_dim:
             raise ValueError(f"expected action dim {self.action_dim}, got {actions.size(-1)}")
 
-        max_horizon = min(self.max_horizon, emb.size(1) - 1)
+        zero = emb.sum() * 0.0
+        context_consistency = zero
+        dynamic_static = zero
+        dynamic_variance = zero
+        dynamic_covariance = zero
+        control_emb = emb
+        control_pred = pred_emb
+
+        if self.mode == "factorized_reachability":
+            context = emb[..., : self.context_dim]
+            dynamics = emb[..., self.context_dim :]
+            context_consistency = (context[:, 1:] - context[:, :-1]).square().mean()
+
+            dynamic_mean = dynamics.mean(dim=1, keepdim=True)
+            residual = dynamics - dynamic_mean
+            static_var = dynamic_mean.squeeze(1).var(dim=0, unbiased=False)
+            changing_var = residual.reshape(-1, residual.size(-1)).var(
+                dim=0, unbiased=False
+            )
+            dynamic_static = (
+                static_var / (static_var + changing_var + self.eps)
+            ).mean()
+
+            flat = residual.reshape(-1, residual.size(-1)).float()
+            std = torch.sqrt(flat.var(dim=0, unbiased=False) + self.eps)
+            dynamic_variance = F.relu(self.dynamic_variance_target - std).mean()
+            normalized = (flat - flat.mean(dim=0)) / std.clamp_min(self.eps)
+            denom = max(normalized.size(0) - 1, 1)
+            corr = normalized.T @ normalized / denom
+            off_diagonal = corr.flatten()[:-1].view(
+                corr.size(0) - 1, corr.size(0) + 1
+            )[:, 1:].flatten()
+            dynamic_covariance = off_diagonal.square().sum() / corr.size(0)
+
+            control_emb = residual
+            if pred_emb is not None:
+                control_pred = (
+                    pred_emb[..., self.context_dim :]
+                    - dynamic_mean.expand(-1, pred_emb.size(1), -1)
+                )
+
+        max_horizon = min(self.max_horizon, control_emb.size(1) - 1)
         if max_horizon < 1:
-            zero = emb.sum() * 0.0
             return {
                 "control_loss": zero,
                 "inverse_dynamics_loss": zero,
                 "action_cycle_loss": zero,
                 "reachability_loss": zero,
                 "reachability_accuracy": zero.detach(),
+                "context_consistency_loss": context_consistency,
+                "dynamic_static_leak_loss": dynamic_static,
+                "dynamic_variance_loss": dynamic_variance,
+                "dynamic_covariance_loss": dynamic_covariance,
             }
 
         inverse_terms = []
@@ -137,8 +205,8 @@ class ControlObjective(nn.Module):
         reach_terms = []
         reach_correct = []
         for horizon in range(1, max_horizon + 1):
-            start = emb[:, :-horizon]
-            end = emb[:, horizon:]
+            start = control_emb[:, :-horizon]
+            end = control_emb[:, horizon:]
             target_actions = self._action_chunk(actions, horizon)
             target_mean_action = target_actions.reshape(
                 *target_actions.shape[:-1], horizon, self.action_dim
@@ -185,11 +253,11 @@ class ControlObjective(nn.Module):
         inverse_loss = torch.stack(inverse_terms).mean()
         zero = inverse_loss * 0.0
         cycle_loss = zero
-        if self.mode == "masked_reachability" and pred_emb is not None:
-            length = min(pred_emb.size(1), emb.size(1) - 1, actions.size(1))
+        if self.mode == "masked_reachability" and control_pred is not None:
+            length = min(control_pred.size(1), control_emb.size(1) - 1, actions.size(1))
             if length:
-                start = emb[:, :length]
-                predicted_end = pred_emb[:, :length]
+                start = control_emb[:, :length]
+                predicted_end = control_pred[:, :length]
                 start, predicted_end = self._paired_mask(start, predicted_end)
                 reconstructed = self.inverse_heads["1"](
                     torch.cat((start, predicted_end), dim=-1)
@@ -200,13 +268,13 @@ class ControlObjective(nn.Module):
         reachability_accuracy = (
             torch.stack(reach_correct).mean().detach() if reach_correct else zero.detach()
         )
-        if self.mode == "direct_reachability" and pred_emb is not None:
+        if self.mode in {"direct_reachability", "factorized_reachability"} and control_pred is not None:
             direct_terms = []
             direct_correct = []
-            length = min(pred_emb.size(1), emb.size(1) - 1)
-            keys = F.normalize(emb, dim=-1)
+            length = min(control_pred.size(1), control_emb.size(1) - 1)
+            keys = F.normalize(control_emb, dim=-1)
             for time_index in range(length):
-                query = F.normalize(pred_emb[:, time_index], dim=-1)
+                query = F.normalize(control_pred[:, time_index], dim=-1)
                 logits = torch.einsum("bd,btd->bt", query, keys) / self.temperature
                 target_index = torch.full(
                     (emb.size(0),),
@@ -231,11 +299,24 @@ class ControlObjective(nn.Module):
             )
         elif self.mode == "direct_reachability":
             total = total + self.reachability_weight * reachability_loss
+        elif self.mode == "factorized_reachability":
+            total = (
+                total
+                + self.reachability_weight * reachability_loss
+                + self.context_weight * context_consistency
+                + self.static_leak_weight * dynamic_static
+                + self.dynamic_variance_weight * dynamic_variance
+                + self.dynamic_covariance_weight * dynamic_covariance
+            )
         return {
             "control_loss": total,
             "inverse_dynamics_loss": inverse_loss,
             "action_cycle_loss": cycle_loss,
             "reachability_loss": reachability_loss,
             "reachability_accuracy": reachability_accuracy,
+            "context_consistency_loss": context_consistency,
+            "dynamic_static_leak_loss": dynamic_static,
+            "dynamic_variance_loss": dynamic_variance,
+            "dynamic_covariance_loss": dynamic_covariance,
             **inverse_by_horizon,
         }
