@@ -183,3 +183,18 @@ cosine. The prediction head still receives the full gradient. Unlike pred03,
 the encoder prediction budget is determined per batch without a fixed global
 weight; the configured raw prediction weight is 1.0. Run seed 0 for the full
 ten epochs after a 20-step gradient smoke check.
+
+### Aligned-gradient mechanism ablations
+
+The seed-0 aligned run reached a sustained 0.8-level regime late in training,
+with observed peaks of 0.88. Two minimal seed-0, 10000-step controls test the
+mechanism before spending full-run compute:
+
+- `control_parallel_pred1` removes every prediction-gradient component
+  orthogonal to the control gradient, retaining only positive parallel signal;
+- `control_shuffled_pred1` keeps the original aligned rule but cyclically
+  assigns each sample another sample's control-gradient guide.
+
+The first tests whether cosine-gated orthogonal prediction is useful. The
+second is a correspondence-breaking negative control: if it matches the true
+guide, the gain cannot be attributed specifically to control-aligned routing.

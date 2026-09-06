@@ -17,6 +17,8 @@ def test_control_grid_has_relation_core_sweep():
         "masked_sequence_pred07",
         "masked_sequence_pred0",
         "control_aligned_pred1",
+        "control_parallel_pred1",
+        "control_shuffled_pred1",
     }
     for name, arm in config["arms"].items():
         joined = " ".join(arm["overrides"])
@@ -24,7 +26,7 @@ def test_control_grid_has_relation_core_sweep():
         assert "+pixel_tag.mode=video" in joined
         expected_mode = (
             "masked_reachability"
-            if name.startswith("masked_sequence_") or name == "control_aligned_pred1"
+            if name.startswith("masked_sequence_") or name.startswith("control_")
             else name
         )
         assert f"+loss.control.mode={expected_mode}" in joined
@@ -39,3 +41,7 @@ def test_control_grid_has_relation_core_sweep():
     assert "+loss.pred_weight=1.0" in aligned
     assert "+loss.aligned_gradient_routing.enabled=true" in aligned
     assert "+loss.control.inverse_target=sequence" in aligned
+    parallel = config["arms"]["control_parallel_pred1"]["overrides"]
+    assert "+loss.aligned_gradient_routing.orthogonal_mode=drop" in parallel
+    shuffled = config["arms"]["control_shuffled_pred1"]["overrides"]
+    assert "+loss.aligned_gradient_routing.shuffle_control=true" in shuffled

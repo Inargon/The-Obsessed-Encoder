@@ -10,6 +10,8 @@ def control_aligned_prediction_surrogate(
     control_loss: torch.Tensor,
     embedding: torch.Tensor,
     eps: float = 1e-12,
+    orthogonal_mode: str = "cosine",
+    shuffle_control: bool = False,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     """Protect control-aligned prediction and attenuate orthogonal capacity use.
 
@@ -20,12 +22,24 @@ def control_aligned_prediction_surrogate(
     returned term is zero-valued but supplies the correction on backward, so
     the prediction head still receives its complete prediction gradient.
     """
+    if orthogonal_mode not in {"cosine", "drop"}:
+        raise ValueError(
+            "orthogonal_mode must be either 'cosine' or 'drop', "
+            f"got {orthogonal_mode!r}"
+        )
+
     pred_grad = torch.autograd.grad(
         pred_loss, embedding, retain_graph=True, create_graph=False
     )[0].detach()
     control_grad = torch.autograd.grad(
         control_loss, embedding, retain_graph=True, create_graph=False
     )[0].detach()
+    if shuffle_control and embedding.size(0) > 1:
+        # A deliberately wrong guide for the negative-control experiment.
+        # Sampling a non-zero cyclic shift preserves the guide distribution
+        # and norm while breaking its correspondence with each observation.
+        shift = int(torch.randint(1, embedding.size(0), (), device=embedding.device))
+        control_grad = control_grad.roll(shift, dims=0)
 
     pred_flat = pred_grad.float().flatten(1)
     control_flat = control_grad.float().flatten(1)
@@ -43,7 +57,10 @@ def control_aligned_prediction_surrogate(
 
     positive_coefficient = coefficient.clamp_min(0).to(embedding.dtype)
     positive_parallel = positive_coefficient.view(view_shape) * control_grad
-    orthogonal_gate = cosine.clamp(min=0, max=1).to(embedding.dtype)
+    if orthogonal_mode == "drop":
+        orthogonal_gate = torch.zeros_like(cosine, dtype=embedding.dtype)
+    else:
+        orthogonal_gate = cosine.clamp(min=0, max=1).to(embedding.dtype)
     safe_pred_grad = positive_parallel + orthogonal_gate.view(view_shape) * orthogonal
     correction = safe_pred_grad - pred_grad
 
@@ -58,5 +75,8 @@ def control_aligned_prediction_surrogate(
             safe_norm / pred_norm.clamp_min(eps)
         ).mean(),
         "prediction_reversed_fraction": (dot < 0).float().mean(),
+        "prediction_guide_shuffled": torch.tensor(
+            float(shuffle_control), device=embedding.device
+        ),
     }
     return surrogate, diagnostics

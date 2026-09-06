@@ -73,8 +73,10 @@ def lejepa_forward(self, batch, stage, cfg):
         route_active = stage == "fit" and self.training and torch.is_grad_enabled()
         if route_enabled and route_active:
             pred_component = pred_weight * output["pred_loss"]
+            route_kwargs = OmegaConf.to_container(route_cfg, resolve=True)
+            route_kwargs.pop("enabled", None)
             surrogate, diagnostics = control_aligned_prediction_surrogate(
-                pred_component, output["control_loss"], emb
+                pred_component, output["control_loss"], emb, **route_kwargs
             )
             output["loss"] = output["loss"] + surrogate
             output.update(diagnostics)
@@ -91,6 +93,7 @@ def lejepa_forward(self, batch, stage, cfg):
             "prediction_orthogonal_gate",
             "prediction_grad_retained_fraction",
             "prediction_reversed_fraction",
+            "prediction_guide_shuffled",
         }
     }
     self.log_dict(metrics_dict, on_step=True, sync_dist=True)

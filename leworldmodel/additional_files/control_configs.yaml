@@ -106,3 +106,24 @@ arms:
       - +loss.aligned_gradient_routing.enabled=true
     control:
       <<: *masked_sequence_control
+
+  # Mechanism ablation: retain only prediction gradient parallel to the
+  # control gradient. This tests whether the softly retained orthogonal part
+  # is important rather than merely making the rule more complicated.
+  control_parallel_pred1:
+    overrides:
+      - +loss.pred_weight=1.0
+      - +loss.aligned_gradient_routing.enabled=true
+      - +loss.aligned_gradient_routing.orthogonal_mode=drop
+    control:
+      <<: *masked_sequence_control
+
+  # Negative control: preserve the marginal distribution of control
+  # gradients but assign each sample another sample's guide direction.
+  control_shuffled_pred1:
+    overrides:
+      - +loss.pred_weight=1.0
+      - +loss.aligned_gradient_routing.enabled=true
+      - +loss.aligned_gradient_routing.shuffle_control=true
+    control:
+      <<: *masked_sequence_control
