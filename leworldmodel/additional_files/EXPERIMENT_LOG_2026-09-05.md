@@ -190,3 +190,8 @@ reducing the task utility of the learned representation.
   carry the same independently sampled 5 px video tag.
 - Status: implementation and launchers prepared; one seed only. The full job is
   submitted with an `afterok` dependency on the 20-step smoke job.
+- Mechanism test: `diagnose_effect_geometry.py` compares geometry and pred03 at
+  the latest shared step checkpoint on identical held-out clips/clouds. It
+  jointly reports lag-1/2/3 rho, physical Gram distortion, action-effect share,
+  block-angle R2, and the aligned success rate. This tests whether rho moves as
+  a cause, a proxy, or a consequence of restoring reachable physical geometry.
