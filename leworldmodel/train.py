@@ -18,6 +18,7 @@ from utils import get_column_normalizer, get_img_preprocessor, SaveCkptCallback
 from additional_files import callbacks
 from additional_files.allocation_regularizers import AllocationRegularizer
 from additional_files.control_objectives import ControlObjective
+from additional_files.effect_geometry import EffectGeometryOracle
 from additional_files.pixel_tag import attach_pixel_tag, tag_from_cfg
 # <<< obsessed-encoder
 
@@ -67,6 +68,13 @@ def lejepa_forward(self, batch, stage, cfg):
         output.update(control)
         output["loss"] = output["loss"] + output["control_loss"]
 
+    # Privileged oracle: extra simulator branches are used only to constrain
+    # encoder geometry. They never enter the predictor or policy inputs.
+    if hasattr(self, "effect_geometry") and stage == "fit":
+        geometry = self.effect_geometry(self.model)
+        output.update(geometry)
+        output["loss"] = output["loss"] + output["effect_geometry_loss"]
+
     metrics_dict = {
         f"{stage}/{k}": v.detach()
         for k, v in output.items()
@@ -75,6 +83,7 @@ def lejepa_forward(self, batch, stage, cfg):
             "reachability_accuracy",
             "reachability_shuffled_accuracy",
             "reachability_action_margin",
+            "effect_geometry_latent_rms",
         }
     }
     self.log_dict(metrics_dict, on_step=True, sync_dist=True)
@@ -158,6 +167,13 @@ def run(cfg):
         allocation_kwargs = OmegaConf.to_container(allocation_cfg, resolve=True)
         allocation_kwargs.pop("enabled", None)
         module_kwargs["allocation_reg"] = AllocationRegularizer(**allocation_kwargs)
+    geometry_cfg = cfg.loss.get("effect_geometry")
+    if geometry_cfg and geometry_cfg.get("enabled", True):
+        geometry_kwargs = OmegaConf.to_container(geometry_cfg, resolve=True)
+        geometry_kwargs.pop("enabled", None)
+        geometry_kwargs.setdefault("image_size", cfg.img_size)
+        geometry_kwargs.setdefault("seed", cfg.seed)
+        module_kwargs["effect_geometry"] = EffectGeometryOracle(**geometry_kwargs)
 
     world_model = spt.Module(
         model = world_model,

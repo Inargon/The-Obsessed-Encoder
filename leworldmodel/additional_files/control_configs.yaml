@@ -99,3 +99,22 @@ arms:
       - +loss.pred_weight=0.0
     control:
       <<: *masked_sequence_control
+
+  # Privileged causal-geometry oracle: pred03 is held fixed while same-anchor
+  # simulator outcome clouds supervise the planner embedding's physical Gram.
+  effect_geometry_pred03:
+    overrides:
+      - +loss.pred_weight=0.3
+      - +loss.effect_geometry.enabled=true
+      - +loss.effect_geometry.bank_glob=results/effect-geometry-bank/*.npz
+      - +loss.effect_geometry.weight=0.1
+      - +loss.effect_geometry.scale_weight=1.0
+      - +loss.effect_geometry.clouds_per_step=4
+      - +loss.effect_geometry.branches_per_cloud=8
+      - +loss.effect_geometry.agent_position_scale=128.0
+      - +loss.effect_geometry.block_position_scale=32.0
+      - +loss.effect_geometry.angular_scale=1.0
+      - +loss.effect_geometry.min_effect_rms=0.05
+      - +loss.effect_geometry.max_effect_rms=2.0
+    control:
+      <<: *masked_sequence_control

@@ -172,3 +172,21 @@ resume all optimizer, scheduler, and logging state from the pilot checkpoint.
 This result directly supports the proposed Enigma trade-off: optimizing
 absolute latent prediction more strongly can improve prediction loss while
 reducing the task utility of the learned representation.
+# Reachable-effect geometry oracle
+
+- Branch: `experiment/effect-geometry`
+- Question: is preserving decodability/action sensitivity insufficient because
+  the encoder distorts the geometry of physically reachable outcomes?
+- Intervention: from each PushT anchor, execute a bank of exogenous three-step
+  action windows in the simulator, keep 16 physically diverse outcome branches,
+  and match the centred, trace-normalized physical and planner-latent Gram
+  matrices. A separate latent-effect RMS band prevents the normalized loss from
+  admitting an arbitrarily small solution.
+- Physical metric: pusher displacement / 128 px, block displacement / 32 px,
+  and periodic `(sin theta, cos theta)` displacement. This deliberately stops
+  easy pusher motion from dominating weak block/contact directions.
+- Confound control: the base recipe is unchanged `masked_sequence_pred03`; the
+  geometry objective is the only addition. All frames in one outcome cloud
+  carry the same independently sampled 5 px video tag.
+- Status: implementation and launchers prepared; one seed only. The full job is
+  submitted with an `afterok` dependency on the 20-step smoke job.
