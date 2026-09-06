@@ -148,6 +148,12 @@ def write_summary(spec: runner.RunSpec, results_dir: str) -> None:
                 or key.startswith("fit/context_")
                 or key.startswith("fit/dynamic_")
                 or key.startswith("fit/effect_geometry_")
+                or key.startswith("fit/bank_")
+                or key.startswith("fit/binding_")
+                or key.startswith("fit/hard_binding_")
+                or key.startswith("fit/counterfactual_")
+                or key.startswith("fit/nuisance_")
+                or key.startswith("fit/action_binding_")
             ):
                 final[f"final_{key}"] = value
     steps = [r["step"] for r in rows if isinstance(r.get("step"), int)]

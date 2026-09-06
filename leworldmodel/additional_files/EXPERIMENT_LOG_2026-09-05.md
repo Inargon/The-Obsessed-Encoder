@@ -195,3 +195,18 @@ reducing the task utility of the learned representation.
   jointly reports lag-1/2/3 rho, physical Gram distortion, action-effect share,
   block-angle R2, and the aligned success rate. This tests whether rho moves as
   a cause, a proxy, or a consequence of restoring reachable physical geometry.
+
+## Counterfactual action binding
+
+- Branch: `experiment/counterfactual-action-binding`.
+- Motivation: IDM establishes that action is decodable from two latents, but
+  does not establish that a candidate action selects its own predicted future.
+- Matched 10k diagnostic: all three seed-0 arms use the same tagged PushT data,
+  `pred_weight=0.3`, masked full-sequence control objective, and same-anchor
+  action bank. `bank_sequence_idm` adds only bank IDM;
+  `counterfactual_binding` adds forward branch binding and watermark-invariant
+  effects; `binding_geometry_oracle` additionally supplies privileged physical
+  Gram supervision to both encoded and predicted effects.
+- Falsification rule: binding must beat the bank-IDM arm in planning success,
+  not merely in its training retrieval accuracy. The oracle arm is diagnostic
+  and cannot be claimed as the final non-privileged method.

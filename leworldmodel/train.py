@@ -19,6 +19,7 @@ from additional_files import callbacks
 from additional_files.allocation_regularizers import AllocationRegularizer
 from additional_files.control_objectives import ControlObjective
 from additional_files.effect_geometry import EffectGeometryOracle
+from additional_files.action_binding import CounterfactualActionObjective
 from additional_files.pixel_tag import attach_pixel_tag, tag_from_cfg
 # <<< obsessed-encoder
 
@@ -75,6 +76,13 @@ def lejepa_forward(self, batch, stage, cfg):
         output.update(geometry)
         output["loss"] = output["loss"] + output["effect_geometry_loss"]
 
+    # Same-anchor interventions test the stronger claim that each action
+    # sequence selects its own future, rather than merely being decodable.
+    if hasattr(self.model, "action_binding_objective") and stage == "fit":
+        binding = self.model.action_binding_objective(self.model)
+        output.update(binding)
+        output["loss"] = output["loss"] + output["action_binding_loss"]
+
     metrics_dict = {
         f"{stage}/{k}": v.detach()
         for k, v in output.items()
@@ -84,6 +92,8 @@ def lejepa_forward(self, batch, stage, cfg):
             "reachability_shuffled_accuracy",
             "reachability_action_margin",
             "effect_geometry_latent_rms",
+            "binding_accuracy",
+            "hard_binding_accuracy",
         }
     }
     self.log_dict(metrics_dict, on_step=True, sync_dist=True)
@@ -149,6 +159,18 @@ def run(cfg):
             embed_dim=cfg.embed_dim,
             action_dim=cfg.model.action_encoder.input_dim,
             **control_kwargs,
+        )
+
+    binding_cfg = cfg.loss.get("action_binding")
+    if binding_cfg and binding_cfg.get("enabled", True):
+        binding_kwargs = OmegaConf.to_container(binding_cfg, resolve=True)
+        binding_kwargs.pop("enabled", None)
+        binding_kwargs.setdefault("image_size", cfg.img_size)
+        binding_kwargs.setdefault("seed", cfg.seed)
+        world_model.action_binding_objective = CounterfactualActionObjective(
+            embed_dim=cfg.embed_dim,
+            action_dim=cfg.model.action_encoder.input_dim,
+            **binding_kwargs,
         )
 
     optimizers = {

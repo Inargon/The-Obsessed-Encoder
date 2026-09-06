@@ -1,0 +1,61 @@
+epochs: 10
+eval_every_n_steps: 2000
+pair_every_n_steps: 500
+checkpoint_every_n_steps: 5000
+preview_episodes: 2
+
+common_overrides:
+  - data.dataset.name=pusht_expert_train.h5
+  - +pixel_tag.mode=video
+  - +pixel_tag.size=5
+  - +loss.pred_weight=0.3
+
+common_eval_overrides:
+  - +eval.tag_mode=video
+  - +eval.tag_size=5
+
+control: &control
+  mode: masked_reachability
+  max_horizon: 3
+  hidden_dim: 256
+  inverse_target: sequence
+  inverse_weight: 1.0
+  cycle_weight: 0.5
+  reachability_weight: 0.1
+  mask_keep_prob: 0.5
+  temperature: 0.1
+  action_shuffle_diagnostics: true
+
+binding: &binding
+  bank_glob: results/action-binding-bank/*.npz
+  horizon: 3
+  hidden_dim: 256
+  clouds_per_step: 2
+  branches_per_cloud: 8
+  inverse_weight: 1.0
+  forward_weight: 1.0
+  binding_weight: 0.1
+  hard_binding_weight: 0.1
+  nuisance_weight: 0.5
+  geometry_weight: 0.1
+  temperature: 0.1
+  tag_size: 5
+
+arms:
+  bank_sequence_idm:
+    control: *control
+    action_binding:
+      <<: *binding
+      mode: bank_idm
+
+  counterfactual_binding:
+    control: *control
+    action_binding:
+      <<: *binding
+      mode: binding
+
+  binding_geometry_oracle:
+    control: *control
+    action_binding:
+      <<: *binding
+      mode: binding_geometry
