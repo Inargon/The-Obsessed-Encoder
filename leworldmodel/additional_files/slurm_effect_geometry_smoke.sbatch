@@ -26,4 +26,4 @@ fi
 "$python_bin" additional_files/run_control.py \
   --configs effect_geometry_pred03 --seeds 1 --gpus 0 \
   --results-dir "$repo_root/leworldmodel/results/effect-geometry-smoke" \
-  --extra-opts '+trainer.max_steps=20 ++eval.every_n_steps=100000 ++pair.every_n_steps=100000'
+  --extra-opts '+trainer.max_steps=20 +trainer.log_every_n_steps=10 ++eval.every_n_steps=100000 ++pair.every_n_steps=100000'
