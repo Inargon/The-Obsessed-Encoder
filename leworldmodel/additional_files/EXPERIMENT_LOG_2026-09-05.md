@@ -172,3 +172,14 @@ resume all optimizer, scheduler, and logging state from the pilot checkpoint.
 This result directly supports the proposed Enigma trade-off: optimizing
 absolute latent prediction more strongly can improve prediction loss while
 reducing the task utility of the learned representation.
+
+### Control-aligned prediction gradients (separate full-run branch)
+
+Branch `experiment/control-aligned-gradient` targets the orthogonal-capacity
+failure exposed by the first conflict-only run. It retains positive prediction
+gradient along the control direction, removes its negative parallel component,
+and gates the orthogonal component by the non-negative per-sample gradient
+cosine. The prediction head still receives the full gradient. Unlike pred03,
+the encoder prediction budget is determined per batch without a fixed global
+weight; the configured raw prediction weight is 1.0. Run seed 0 for the full
+ten epochs after a 20-step gradient smoke check.

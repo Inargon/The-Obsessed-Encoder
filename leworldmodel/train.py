@@ -18,6 +18,7 @@ from utils import get_column_normalizer, get_img_preprocessor, SaveCkptCallback
 from additional_files import callbacks
 from additional_files.allocation_regularizers import AllocationRegularizer
 from additional_files.control_objectives import ControlObjective
+from additional_files.aligned_gradient_routing import control_aligned_prediction_surrogate
 from additional_files.pixel_tag import attach_pixel_tag, tag_from_cfg
 # <<< obsessed-encoder
 
@@ -67,6 +68,17 @@ def lejepa_forward(self, batch, stage, cfg):
         output.update(control)
         output["loss"] = output["loss"] + output["control_loss"]
 
+        route_cfg = cfg.loss.get("aligned_gradient_routing")
+        route_enabled = route_cfg and route_cfg.get("enabled", True)
+        route_active = stage == "fit" and self.training and torch.is_grad_enabled()
+        if route_enabled and route_active:
+            pred_component = pred_weight * output["pred_loss"]
+            surrogate, diagnostics = control_aligned_prediction_surrogate(
+                pred_component, output["control_loss"], emb
+            )
+            output["loss"] = output["loss"] + surrogate
+            output.update(diagnostics)
+
     metrics_dict = {
         f"{stage}/{k}": v.detach()
         for k, v in output.items()
@@ -75,6 +87,10 @@ def lejepa_forward(self, batch, stage, cfg):
             "reachability_accuracy",
             "reachability_shuffled_accuracy",
             "reachability_action_margin",
+            "prediction_control_grad_cosine",
+            "prediction_orthogonal_gate",
+            "prediction_grad_retained_fraction",
+            "prediction_reversed_fraction",
         }
     }
     self.log_dict(metrics_dict, on_step=True, sync_dist=True)
