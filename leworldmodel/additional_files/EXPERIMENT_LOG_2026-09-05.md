@@ -172,3 +172,13 @@ resume all optimizer, scheduler, and logging state from the pilot checkpoint.
 This result directly supports the proposed Enigma trade-off: optimizing
 absolute latent prediction more strongly can improve prediction loss while
 reducing the task utility of the learned representation.
+
+### Split prediction gradients (mechanism control)
+
+Branch `experiment/split-prediction-gradient` separates the two roles that a
+single prediction-loss coefficient confounds. The predictor receives the full
+future-matching gradient (`lambda_F=1.0`), while a zero-valued representation
+surrogate scales only the gradient reaching the encoder and projector to
+`lambda_E=0.3`. All masked sequence-control components are identical to pred03,
+and no cosine routing or additional head is introduced. This is the necessary
+mechanism control for the adaptive aligned-gradient method.

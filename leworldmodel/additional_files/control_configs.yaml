@@ -99,3 +99,10 @@ arms:
       - +loss.pred_weight=0.0
     control:
       <<: *masked_sequence_control
+
+  split_pred_e03_f1:
+    overrides:
+      - +loss.pred_weight=1.0
+      - +loss.encoder_pred_weight=0.3
+    control:
+      <<: *masked_sequence_control

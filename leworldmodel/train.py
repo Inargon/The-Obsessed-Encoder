@@ -19,6 +19,7 @@ from additional_files import callbacks
 from additional_files.allocation_regularizers import AllocationRegularizer
 from additional_files.control_objectives import ControlObjective
 from additional_files.pixel_tag import attach_pixel_tag, tag_from_cfg
+from additional_files.split_prediction_gradient import encoder_scaled_prediction_surrogate
 # <<< obsessed-encoder
 
 
@@ -53,6 +54,18 @@ def lejepa_forward(self, batch, stage, cfg):
     pred_weight = float(cfg.loss.get("pred_weight", 1.0))
     output["loss"] = pred_weight * output["pred_loss"] + lambd * output["sigreg_loss"]
 
+    # Opt-in split prediction budget. The scalar pred_weight still controls
+    # predictor parameters; this zero-valued correction independently scales
+    # only the prediction gradient that reaches encoder representations.
+    encoder_pred_weight = cfg.loss.get("encoder_pred_weight")
+    split_active = stage == "fit" and self.training and torch.is_grad_enabled()
+    if encoder_pred_weight is not None and split_active:
+        surrogate, diagnostics = encoder_scaled_prediction_surrogate(
+            pred_weight * output["pred_loss"], emb, float(encoder_pred_weight)
+        )
+        output["loss"] = output["loss"] + surrogate
+        output.update(diagnostics)
+
     # Opt-in capacity-allocation experiment. The published arms have no
     # ``loss.allocation`` block and therefore retain the exact upstream loss.
     if hasattr(self, "allocation_reg"):
@@ -75,6 +88,8 @@ def lejepa_forward(self, batch, stage, cfg):
             "reachability_accuracy",
             "reachability_shuffled_accuracy",
             "reachability_action_margin",
+            "encoder_prediction_weight",
+            "prediction_grad_removed_fraction",
         }
     }
     self.log_dict(metrics_dict, on_step=True, sync_dist=True)
