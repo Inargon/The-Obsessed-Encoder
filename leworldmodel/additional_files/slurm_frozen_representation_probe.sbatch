@@ -11,7 +11,7 @@ set -euo pipefail
 
 repo_root="${REPO_ROOT:-/grp01/ids_compcog/song/code/The-Obsessed-Encoder-aligned-ablations}"
 python_bin="${PYTHON_BIN:-/grp01/ids_compcog/song/envs/obsessed-encoder-py312/bin/python}"
-dataset_dir="${LOCAL_DATASET_DIR:-/grp01/ids_compcog/song/swm/datasets}"
+dataset_dir="${LOCAL_DATASET_DIR:-/grp01/ids_compcog/song/swm}"
 
 cd "$repo_root"
 export PYTHONPATH="$repo_root:$repo_root/leworldmodel"
