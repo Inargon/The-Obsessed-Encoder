@@ -100,3 +100,58 @@ def test_unknown_orthogonal_mode_is_rejected():
             embedding.sum(), embedding[:, 0].sum(), embedding,
             orthogonal_mode="unknown",
         )
+
+
+def test_norm_matched_scalar_preserves_reference_norm_not_direction():
+    embedding = torch.tensor([[1.0, 1.0]], requires_grad=True)
+    pred_loss = embedding.sum()
+    control_loss = embedding[0, 0]
+
+    gradient, diagnostics = _combined_gradient(
+        pred_loss, control_loss, embedding,
+        routing_mode="norm_matched_scalar",
+    )
+    routed_prediction = gradient - torch.tensor([[1.0, 0.0]])
+
+    torch.testing.assert_close(routed_prediction.norm(), torch.sqrt(torch.tensor(1.5)))
+    torch.testing.assert_close(
+        diagnostics["prediction_norm_match_error"], torch.tensor(0.0)
+    )
+    assert diagnostics["prediction_direction_cosine_to_aligned"] < 1.0
+
+
+def test_retention_matched_shuffle_changes_axis_but_not_norm():
+    embedding = torch.ones((2, 2), requires_grad=True)
+    pred_loss = (
+        embedding[0, 0] + embedding[0, 1]
+        + embedding[1, 0] - embedding[1, 1]
+    )
+    control_loss = embedding[0, 0] - embedding[1, 1]
+
+    gradient, diagnostics = _combined_gradient(
+        pred_loss, control_loss, embedding,
+        routing_mode="retention_matched_shuffled",
+    )
+    true_control = torch.tensor([[1.0, 0.0], [0.0, -1.0]])
+    routed_prediction = gradient - true_control
+
+    expected_reference_norm = torch.sqrt(torch.tensor(1.5))
+    torch.testing.assert_close(
+        routed_prediction.norm(dim=1), expected_reference_norm.expand(2)
+    )
+    torch.testing.assert_close(
+        diagnostics["prediction_norm_match_error"], torch.tensor(0.0)
+    )
+    torch.testing.assert_close(
+        diagnostics["prediction_guide_shuffled"], torch.tensor(1.0)
+    )
+    assert diagnostics["prediction_direction_cosine_to_aligned"] < 1.0
+
+
+def test_unknown_routing_mode_is_rejected():
+    embedding = torch.ones((1, 2), requires_grad=True)
+    with pytest.raises(ValueError, match="routing_mode"):
+        control_aligned_prediction_surrogate(
+            embedding.sum(), embedding[:, 0].sum(), embedding,
+            routing_mode="unknown",
+        )

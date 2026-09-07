@@ -19,6 +19,8 @@ def test_control_grid_has_relation_core_sweep():
         "control_aligned_pred1",
         "control_parallel_pred1",
         "control_shuffled_pred1",
+        "control_norm_matched_scalar_pred1",
+        "control_retention_matched_shuffled_pred1",
     }
     for name, arm in config["arms"].items():
         joined = " ".join(arm["overrides"])
@@ -45,3 +47,10 @@ def test_control_grid_has_relation_core_sweep():
     assert "+loss.aligned_gradient_routing.orthogonal_mode=drop" in parallel
     shuffled = config["arms"]["control_shuffled_pred1"]["overrides"]
     assert "+loss.aligned_gradient_routing.shuffle_control=true" in shuffled
+    scalar = config["arms"]["control_norm_matched_scalar_pred1"]["overrides"]
+    assert "+loss.aligned_gradient_routing.routing_mode=norm_matched_scalar" in scalar
+    matched = config["arms"]["control_retention_matched_shuffled_pred1"]["overrides"]
+    assert (
+        "+loss.aligned_gradient_routing.routing_mode=retention_matched_shuffled"
+        in matched
+    )

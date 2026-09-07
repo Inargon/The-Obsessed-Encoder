@@ -198,3 +198,15 @@ mechanism before spending full-run compute:
 The first tests whether cosine-gated orthogonal prediction is useful. The
 second is a correspondence-breaking negative control: if it matches the true
 guide, the gain cannot be attributed specifically to control-aligned routing.
+
+### Norm- and retention-matched routing controls
+
+The first ablations changed both direction and retained gradient magnitude.
+Two stricter controls isolate these factors. `control_norm_matched_scalar_pred1`
+keeps the original prediction-gradient direction but matches the exact
+per-sample norm produced by true aligned routing. The
+`control_retention_matched_shuffled_pred1` arm uses another sample's control
+gradient axis and then matches that same true-aligned norm. Both log the
+reference retention, relative norm-matching error, and direction cosine to the
+true aligned update. Promote neither beyond 10000 steps until this diagnostic
+comparison shows a directional advantage.

@@ -127,3 +127,24 @@ arms:
       - +loss.aligned_gradient_routing.shuffle_control=true
     control:
       <<: *masked_sequence_control
+
+  # Same per-sample prediction-gradient norm as true aligned routing, but the
+  # original prediction direction is unchanged. This isolates directional
+  # selection from adaptive scalar down-weighting.
+  control_norm_matched_scalar_pred1:
+    overrides:
+      - +loss.pred_weight=1.0
+      - +loss.aligned_gradient_routing.enabled=true
+      - +loss.aligned_gradient_routing.routing_mode=norm_matched_scalar
+    control:
+      <<: *masked_sequence_control
+
+  # Another sample supplies the control-gradient axis, but the routed update
+  # is rescaled to the exact per-sample norm of true aligned routing.
+  control_retention_matched_shuffled_pred1:
+    overrides:
+      - +loss.pred_weight=1.0
+      - +loss.aligned_gradient_routing.enabled=true
+      - +loss.aligned_gradient_routing.routing_mode=retention_matched_shuffled
+    control:
+      <<: *masked_sequence_control

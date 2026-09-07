@@ -94,6 +94,9 @@ def lejepa_forward(self, batch, stage, cfg):
             "prediction_grad_retained_fraction",
             "prediction_reversed_fraction",
             "prediction_guide_shuffled",
+            "prediction_reference_retained_fraction",
+            "prediction_norm_match_error",
+            "prediction_direction_cosine_to_aligned",
         }
     }
     self.log_dict(metrics_dict, on_step=True, sync_dist=True)
