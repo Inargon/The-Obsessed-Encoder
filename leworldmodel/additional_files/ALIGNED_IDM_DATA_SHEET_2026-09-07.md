@@ -1,4 +1,4 @@
-# Aligned vs. IDM / MSID：实验数据表
+# Aligned vs. IDM / MSID / Clean Baseline：实验数据表
 
 ## 1. 规划成功率
 
@@ -9,6 +9,7 @@
 | Focus MSID | 0 | **0.88** | **0.82** | 0.81 |
 | Focus IDM | 1 | **0.88** | 0.78 | 0.77 |
 | Focus MSID | 1 | — | 约 0.77（138k） | 约 0.77 |
+| **Clean baseline（无 watermark）** | 0 | **0.94** | **0.88** | **0.89** |
 
 Aligned 的 peak 出现在 96k 和 118k。Focus MSID seed 1 JSONL 末尾两条 `0.04/0.00` 疑似重跑开头记录，未计入后期统计。
 
@@ -60,6 +61,53 @@ mean = 0.774
 | 120k | 0.86 | 0.78 |
 | 130k | 0.82 | 0.86 |
 | 138k | 0.78 | 0.82 |
+
+### 2.3 Clean baseline seed 0
+
+| Step | SR | Step | SR |
+|---:|---:|---:|---:|
+| 2k | 0.02 | 72k | 0.78 |
+| 4k | 0.04 | 74k | 0.82 |
+| 6k | 0.14 | 76k | 0.84 |
+| 8k | 0.28 | 78k | 0.82 |
+| 10k | 0.32 | 80k | 0.82 |
+| 12k | 0.32 | 82k | 0.86 |
+| 14k | 0.46 | 84k | 0.92 |
+| 16k | 0.46 | 86k | 0.86 |
+| 18k | 0.58 | 88k | **0.94** |
+| 20k | 0.50 | 90k | **0.94** |
+| 22k | 0.54 | 92k | 0.88 |
+| 24k | 0.60 | 94k | 0.82 |
+| 26k | 0.60 | 96k | 0.86 |
+| 28k | 0.62 | 98k | 0.84 |
+| 30k | 0.70 | 100k | 0.92 |
+| 32k | 0.74 | 102k | 0.84 |
+| 34k | 0.80 | 104k | 0.82 |
+| 36k | 0.66 | 106k | 0.90 |
+| 38k | 0.82 | 108k | 0.80 |
+| 40k | 0.72 | 110k | 0.86 |
+| 42k | 0.74 | 112k | 0.88 |
+| 44k | 0.80 | 114k | 0.88 |
+| 46k | 0.78 | 116k | 0.90 |
+| 48k | 0.84 | 118k | 0.92 |
+| 50k | 0.82 | 120k | 0.92 |
+| 52k | 0.80 | 122k | **0.94** |
+| 54k | 0.82 | 124k | 0.90 |
+| 56k | 0.76 | 126k | 0.86 |
+| 58k | 0.80 | 128k | 0.92 |
+| 60k | 0.82 | 130k | 0.88 |
+| 62k | 0.70 | 132k | 0.88 |
+| 64k | 0.80 | 134k | 0.90 |
+| 66k | 0.70 | 136k | 0.86 |
+| 68k | 0.86 | 138k | 0.88 |
+| 70k | 0.82 | — | — |
+
+Clean baseline last 10：
+
+```text
+0.92, 0.94, 0.90, 0.86, 0.92, 0.88, 0.88, 0.90, 0.86, 0.88
+mean = 0.894
+```
 
 ## 3. Frozen linear probe：projection 空间
 
@@ -128,6 +176,7 @@ Content − tag margin
 | Aligned planning | Seed 0；50 episodes/checkpoint |
 | Aligned probe | 512 clips；80/20 sampled-clip split；Ridge α=1；probe seed 73 |
 | IDM/MSID planning | Seed 0/1；旧训练内评估 |
+| Clean baseline planning | Seed 0；旧训练内评估；`results/baseline_seed0/metrics.jsonl` |
 | IDM/MSID probe | 6000 frames；episode split；Ridge α=10 |
 | Clean baseline probe | 与 IDM/MSID probe 同一旧机数据表；无 watermark |
 
