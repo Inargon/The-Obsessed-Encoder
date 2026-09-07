@@ -16,6 +16,7 @@ dataset_dir="${LOCAL_DATASET_DIR:-/grp01/ids_compcog/song/swm/datasets}"
 cd "$repo_root"
 export PYTHONPATH="$repo_root:$repo_root/leworldmodel"
 export LOCAL_DATASET_DIR="$dataset_dir"
+export STABLEWM_HOME="${STABLEWM_HOME:-/grp01/ids_compcog/song/swm}"
 
 "$python_bin" leworldmodel/additional_files/diagnose_frozen_representation.py \
   --checkpoint aligned_peak_near96k=control_aligned_pred1_seed0/weights_epoch_7.pt \

@@ -26,6 +26,37 @@ from additional_files.pixel_tag import PixelTag, attach_pixel_tag
 from utils import get_img_preprocessor
 
 
+def load_probe_model(name: str):
+    """Load a checkpoint while tolerating training-only control heads.
+
+    ``stable_worldmodel`` reconstructs the base JEPA module before loading its
+    state dict.  Our aligned checkpoints additionally contain the auxiliary
+    ``control_objective`` used during training.  Frozen probes only consume the
+    encoder and projector, so those extra keys are safe to ignore; every other
+    incompatibility remains an error.
+    """
+    original = torch.nn.Module.load_state_dict
+
+    def load_without_control_head(module, state_dict, strict=True, assign=False):
+        incompatible = original(module, state_dict, strict=False, assign=assign)
+        unexpected = [
+            key for key in incompatible.unexpected_keys
+            if not key.startswith("control_objective.")
+        ]
+        if incompatible.missing_keys or unexpected:
+            raise RuntimeError(
+                "Unexpected checkpoint incompatibility: "
+                f"missing={incompatible.missing_keys}, unexpected={unexpected}"
+            )
+        return incompatible
+
+    torch.nn.Module.load_state_dict = load_without_control_head
+    try:
+        return swm.wm.utils.load_pretrained(name)
+    finally:
+        torch.nn.Module.load_state_dict = original
+
+
 def parse_checkpoint(value: str) -> tuple[str, str, str]:
     """Parse LABEL=RUN/FILE while retaining the checkpoint file suffix."""
     try:
@@ -179,7 +210,7 @@ def main():
 
     for label, run_name, filename in args.checkpoint:
         print(f"loading {label}: {run_name}/{filename}", flush=True)
-        model = swm.wm.utils.load_pretrained(f"{run_name}/{filename}")
+        model = load_probe_model(f"{run_name}/{filename}")
         model = model.to(device).eval().requires_grad_(False)
         loader = build_loader(
             args.dataset, args.cache_dir, args.num_clips, args.seed, args.batch_size
