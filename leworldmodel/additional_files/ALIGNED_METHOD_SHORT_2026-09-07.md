@@ -10,7 +10,7 @@
 
 ## Method
 
-对每个样本，记 prediction loss 与 control loss 关于共享表示 (z) 的梯度为
+对每个样本，记 prediction loss 与 control loss 关于共享表示 $z$ 的梯度为
 
 \[
 g_p=\nabla_z\mathcal L_{pred},
@@ -18,7 +18,19 @@ g_p=\nabla_z\mathcal L_{pred},
 g_c=\nabla_z\mathcal L_{ctrl}.
 \]
 
-将 prediction gradient 分解为相对 (g_c) 的平行分量和正交分量：
+在当前实验中，$\mathcal L_{ctrl}$ 使用 masked sequence control objective：
+
+\[
+\mathcal L_{ctrl}
+=
+\mathcal L_{inv}^{1:3}
++0.5\mathcal L_{cycle}
++0.1\mathcal L_{reach}.
+\]
+
+其中，$\mathcal L_{inv}^{1:3}$ 从经过同一随机维度 mask 的真实起点与终点 latent 中恢复 $H=1,2,3$ 的完整动作序列；$\mathcal L_{cycle}$ 从真实起点和 predictor 产生的未来 latent 中恢复一步动作；$\mathcal L_{reach}$ 给定起点与动作序列，在同一 episode 的候选 latent 中识别真实的 $t+H$ 终点。三项都使用动作监督，并共同产生用于路由的 $g_c$。
+
+将 prediction gradient 分解为相对 $g_c$ 的平行分量和正交分量：
 
 \[
 g_p=\alpha g_c+g_\perp,
