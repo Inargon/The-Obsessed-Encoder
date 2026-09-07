@@ -44,6 +44,50 @@ Aligned 在 96k 和 118k 附近达到 `0.88`。但 `0.88` 是 50-episode 单次�
 
 这些结果均主要是 seed 0，尚不能替代多种子统计。
 
+### 2.3 旧机 IDM/MSID 成功率参照
+
+旧机结果与 gridfire 结果不是完全相同的运行环境和统计协议，因此不能将小数点后的差异解释成严格胜负。它们目前用于判断性能带和训练曲线形态。
+
+Seed 0 摘要：
+
+| 方法 | Last-10 SR | Peak SR | Final SR |
+|---|---:|---:|---:|
+| focus IDM | **0.82** | 0.88 | 0.78 |
+| focus MSID | 0.81 | 0.88 | **0.82** |
+| aligned（gridfire） | 0.774 | 0.88 | 0.80 |
+
+旧机 seed 0 每 10k step 抽样曲线：
+
+| Step | Focus IDM | Focus MSID |
+|---:|---:|---:|
+| 10k | 0.14 | 0.18 |
+| 20k | 0.50 | 0.44 |
+| 30k | 0.58 | 0.72 |
+| 40k | 0.66 | 0.66 |
+| 50k | 0.62 | 0.72 |
+| 60k | 0.68 | 0.74 |
+| 70k | 0.70 | 0.84 |
+| 80k | 0.74 | 0.80 |
+| 90k | 0.78 | 0.76 |
+| 100k | 0.72 | 0.84 |
+| 110k | 0.78 | 0.84 |
+| 120k | 0.86 | 0.78 |
+| 130k | 0.82 | 0.86 |
+| 138k | 0.78 | 0.82 |
+
+两条旧机曲线均在前 20k 快速爬升，30–60k 进入 `0.6–0.7`，后期主要在 `0.70–0.88` 区间波动，并非依赖单个尖峰。MSID 前期整体稍快，最终与 IDM 处于相同水平。
+
+Seed 1 摘要：
+
+- focus IDM：last-10 `0.77`，peak `0.88`，final `0.78`；
+- focus MSID：截至 138k 的后期均值约 `0.77`；原始 JSONL 末尾存在两条疑似重跑开头的 `0.04/0.00`，计算 last-10 时必须排除。
+
+因此，目前关于 SR 的准确结论是：
+
+> Aligned seed 0 已进入旧机 IDM/MSID 的约 `0.8` 性能带，并显著超过 gridfire 上的 pred03、masked reachability 和 conditional；但由于协议差异和 aligned 尚无多种子结果，不能宣称 aligned 已在 SR 上稳定超过 IDM/MSID。
+
+Aligned 当前相对 IDM/MSID 更有力的证据是表示质量：历史 IDM/MSID 的 angle probe 较弱且 tag probe 仍高，而 aligned 同时表现出高 angle、低 tag 和 content-dominant pair geometry。该优势仍需同协议 checkpoint 重测确认。
+
 ## 3. Content/tag pair geometry
 
 Pair metric 比较两类输入对：
@@ -300,4 +344,4 @@ Gradient cosine、辅助任务门控和正交分解有既有工作，不能声�
 
 ## 14. 当前最稳妥的汇报结论
 
-> Aligned routing 在 seed 0 上将 planning last-10 success 从 pred03 的 0.624 提高到 0.774，同时把 content/tag geometry margin 翻转到 +0.631。Frozen probes 显示 aligned 与 pred03 具有近乎相同的 block-angle 和 block-position decodability，但 projection-space watermark RGB R² 从 0.889 降至 0.502。因此，当前结果更支持“重新分配任务因素与 nuisance 的几何显著性”，而不是“简单恢复缺失任务信息”。该现象直接对应 Enigma 暴露的 predictability–utility mismatch，但仍需要多种子、同协议 IDM、norm-matched scalar 和 planner intervention 完成验证。
+> Aligned routing 在 seed 0 上将 planning last-10 success 从 pred03 的 0.624 提高到 0.774，并进入旧机 IDM/MSID 的约 0.8 性能带，同时把 content/tag geometry margin 翻转到 +0.631。Frozen probes 显示 aligned 与 pred03 具有近乎相同的 block-angle 和 block-position decodability，但 projection-space watermark RGB R² 从 0.889 降至 0.502。因此，当前结果更支持“重新分配任务因素与 nuisance 的几何显著性”，而不是“简单恢复缺失任务信息”。该现象直接对应 Enigma 暴露的 predictability–utility mismatch；但 aligned 尚未在同协议、多种子 SR 上证明超过 IDM/MSID，仍需要多种子、同协议 IDM、norm-matched scalar 和 planner intervention 完成验证。
