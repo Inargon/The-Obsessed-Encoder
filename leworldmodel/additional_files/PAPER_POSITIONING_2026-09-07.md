@@ -73,6 +73,45 @@ versus 58.0 +/- 2.0 on OGBench Visual Scene. It is a critical baseline because
 it may resist nuisance through stronger action discrimination without gradient
 routing.
 
+### Gradient-based auxiliary-task control
+
+[Adapting Auxiliary Losses Using Gradient Similarity](https://arxiv.org/abs/1812.02224)
+is the closest classical precursor. It uses the non-negative cosine between a
+main-task gradient and an auxiliary-task gradient to gate the auxiliary update
+to shared parameters, while task-specific parameters continue to receive their
+own gradients. We therefore must not claim that cosine-gated auxiliary
+learning, or separating shared-encoder and auxiliary-head updates, is new. Our
+specific difference is a per-sample intervention at the JEPA representation
+interface: positive parallel prediction is retained in full, while its
+near-orthogonal component is attenuated, and the full prediction gradient is
+preserved for the predictor. The research claim must rest on the predictable-
+nuisance failure, this asymmetric decomposition, and the representation and
+planning evidence rather than on generic gradient gating.
+
+[Auxiliary Task Update Decomposition](https://arxiv.org/abs/2108.11346)
+provides a broader framework that decomposes auxiliary updates into helpful,
+harmful, and neutral directions and weights them differently. It is a direct
+conceptual antecedent to our treatment of near-orthogonal prediction updates.
+Its machinery operates on auxiliary-task optimization generally; our scoped
+question is whether nominally neutral predictive updates can accumulate into
+Enigma-style geometric dominance in a latent world model.
+
+[PCGrad](https://arxiv.org/abs/2001.06782) removes negatively conflicting task
+components but retains non-conflicting and orthogonal updates. Our gradient
+audit finds negative conflicts rare, and our intervention primarily attenuates
+the much larger near-orthogonal region, so PCGrad is an essential falsifying
+baseline rather than an equivalent method.
+
+[Bloop](https://arxiv.org/abs/2402.02998) adds the projection of an auxiliary
+gradient orthogonal to the main gradient, using an EMA to make that
+orthogonality meaningful under stochastic training. Its design deliberately
+preserves the orthogonal auxiliary component because it does not change the
+main loss to first order. Our hypothesis is almost the converse: in a shared
+representation, repeatedly preserving control-insensitive prediction updates
+can reshape future learning and let predictable nuisances dominate. This
+opposition should be stated explicitly and tested, not presented as a generic
+superiority claim.
+
 ### Physical grounding, factorization, and counterfactual structure
 
 [PhyLatent](https://arxiv.org/abs/2608.05720) identifies physical invariance,
@@ -112,15 +151,16 @@ LeWM/PushT study.
 
 ### Gap after this review
 
-Among the reviewed papers, existing methods primarily change what the latent
-must encode (inverse dynamics, state grounding, counterfactual structure), how
-coordinates are assigned, or how prediction is constructed. We did not find a
-method that explicitly separates the prediction loss's update to the predictor
-from its update to the shared encoder, then uses a control gradient to manage
-both negatively conflicting and near-orthogonal prediction updates under a
-predictable-nuisance failure. This is the candidate novelty; it must be stated
-as a scoped finding rather than an exhaustive priority claim until the search
-is expanded.
+Generic cosine gating, auxiliary/shared-parameter gradient separation, and
+helpful/harmful/neutral update decomposition all have clear prior art. The
+candidate novelty is consequently narrower but still meaningful: diagnosing
+that near-orthogonal forward-prediction updates are the dominant optimization
+pathway behind an Enigma-style predictable-nuisance failure in a latent world
+model; applying an asymmetric, per-sample representation-space admission rule
+that preserves the predictor's full learning signal; and demonstrating that it
+changes nuisance prominence and planning while physical-state decodability is
+preserved. This remains a scoped application-and-mechanism claim, not a claim
+to have invented gradient alignment.
 
 ## Questions the paper should answer
 
@@ -247,4 +287,3 @@ model.
 - Predict What Matters: Preventing Nuisance Takeover in Latent World Models
 - Who Shapes the Encoder? Separating Prediction from Representation Allocation
   in JEPA World Models
-

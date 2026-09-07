@@ -231,3 +231,35 @@ G(z_t,z_{t+H})\rightarrow a_{t:t+H-1}.
 > **Control-Conditioned Predictive Gradient Admission**
 
 后者更接近可能最终保留下来的论文贡献：prediction 是否以及多大程度上能够塑造 encoder，应由其与任务学习方向的关系决定。
+
+## 14. 新颖性查重与边界
+
+“梯度余弦”“正交分解”和“辅助头与共享 encoder 使用不同更新”本身均有明确先例，不能作为首创点。
+
+最接近的先例包括：
+
+- [Adapting Auxiliary Losses Using Gradient Similarity](https://arxiv.org/abs/1812.02224)：以主任务/辅助任务梯度的非负 cosine 对辅助梯度做动态门控；共享参数获得门控后的辅助更新，辅助任务专属参数仍正常训练。这与我们的总体结构非常接近。
+- [Auxiliary Task Update Decomposition](https://arxiv.org/abs/2108.11346)：将辅助更新分为帮助、损害和对主任务局部中性的方向，并允许分别加权，是“正交/中性更新也需要管理”的直接概念先例。
+- [PCGrad](https://arxiv.org/abs/2001.06782)：处理负梯度冲突，但保留非冲突和正交分量。我们的诊断显示负冲突稀少，因此 PCGrad 并未针对当前主要失效区域。
+- [Bloop](https://arxiv.org/abs/2402.02998)：保留辅助梯度相对于主梯度的正交投影，因为它在一阶上不改变主损失；并用 EMA 提升随机梯度投影的可靠性。我们的假说几乎相反：长期保留当前控制目标不敏感的 prediction 更新，仍可能重塑表示并让 nuisance 获得几何支配力。
+- [Subspace-Decomposed JEPAs](https://arxiv.org/abs/2605.31111)：将 progression 与 content 放入预先指定的正交 latent 子空间。它的正交发生在表示坐标分配层面；aligned 不预分配坐标，而是在共享 latent 上在线管理 prediction gradient。
+
+我们的公式也不同于最接近的 cosine-gated auxiliary update。Du 等人的加权形式可写为：
+
+\[
+g_c+[\cos(g_p,g_c)]_+g_p.
+\]
+
+Aligned 使用：
+
+\[
+g_c+[\alpha]_+g_c+[\cos(g_p,g_c)]_+g_\perp.
+\]
+
+当 cosine 为正但很小时，aligned 保留完整的正向平行投影，只衰减正交部分；Du 等人的方法会按 cosine 同时缩放平行与正交部分。这是算法差别，但仅凭该公式差别不足以支撑整篇论文的新颖性。
+
+因此，最稳妥的贡献边界是：
+
+> 本工作不声称发明 gradient alignment。贡献在于揭示 Enigma 式 predictable nuisance failure 的主要梯度通道可能不是负冲突，而是大量近正交 prediction updates；提出面向 JEPA encoder/predictor 接口的非对称、逐样本 prediction-gradient admission；并用规划、pair geometry 和 frozen physical/nuisance probes 证明它改变的是表示因素的相对几何显著性，而不只是信息可解码性。
+
+论文必须加入 Du 2018、Dery 2021、PCGrad 和 Bloop 的直接比较或消融。尤其需要一个 Du-style cosine-gated full-gradient baseline；否则审稿人可能将 aligned 视为已有 auxiliary-gradient gating 的小变体。
