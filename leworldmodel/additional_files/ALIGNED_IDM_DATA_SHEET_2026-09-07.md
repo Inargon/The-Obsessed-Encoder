@@ -71,6 +71,7 @@ mean = 0.774
 | **Aligned final** | **0.795** | **0.926** | **0.996** | **0.502** |
 | Focus IDM | 0.24 | 0.90 | 0.98 | 0.87 |
 | Focus MSID | 0.43 | 0.92 | 0.98 | 0.91 |
+| Clean baseline（无 watermark） | **0.92** | **0.98** | 0.95 | — |
 
 ## 4. Frozen linear probe：backbone 空间
 
@@ -80,6 +81,7 @@ mean = 0.774
 | **Aligned final** | **0.870** | **0.963** | 0.995 | **0.566** |
 | Focus IDM | 0.46 | 0.93 | — | 0.92 |
 | Focus MSID | 0.56 | 0.94 | — | 0.90 |
+| Clean baseline（无 watermark） | — | — | — | — |
 
 ## 5. Aligned content/tag 几何
 
@@ -127,5 +129,6 @@ Content − tag margin
 | Aligned probe | 512 clips；80/20 sampled-clip split；Ridge α=1；probe seed 73 |
 | IDM/MSID planning | Seed 0/1；旧训练内评估 |
 | IDM/MSID probe | 6000 frames；episode split；Ridge α=10 |
+| Clean baseline probe | 与 IDM/MSID probe 同一旧机数据表；无 watermark |
 
 当前先并表用于直观比较；后续用统一训练与 probe 协议重跑后替换对应数字。
