@@ -22,7 +22,7 @@ mkdir -p "$SPT_CACHE_DIR" "$TMPDIR"
 cd "$repo_root/leworldmodel"
 
 "$python_bin" additional_files/run_randgoal_control.py \
-  --configs control_aligned_pred1 \
+  --configs randgoal_control_aligned_pred1 \
   --seeds 1 \
   --gpus 0 \
   --results-dir "$repo_root/leworldmodel/results/randgoal-aligned-10k-seed0" \

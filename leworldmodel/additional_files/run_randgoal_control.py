@@ -19,7 +19,8 @@ DATASET = "pusht_scripted_goal_train.lance"
 def load_randgoal_control_configs() -> dict:
     """Retarget the control grid without carrying over the watermark setup."""
     cfg = run_control.load_control_configs()
-    for arm in cfg["arms"].values():
+    renamed_arms = {}
+    for name, arm in cfg["arms"].items():
         arm["overrides"] = [
             f"data.dataset.name={DATASET}",
             *(
@@ -31,6 +32,12 @@ def load_randgoal_control_configs() -> dict:
         ]
         arm["eval_overrides"] = [f"+eval.dataset_name={DATASET}"]
         arm["pair_suites"] = ["t_position"]
+        # Checkpoints are stored under STABLEWM_HOME by run name, outside the
+        # per-campaign results directory.  A prefix is therefore required to
+        # prevent RandGoal smoke/full runs from clearing or overwriting the
+        # existing watermark control_aligned_pred1_seed0 checkpoints.
+        renamed_arms[f"randgoal_{name}"] = arm
+    cfg["arms"] = renamed_arms
     return cfg
 
 

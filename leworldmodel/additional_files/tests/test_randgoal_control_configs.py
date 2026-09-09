@@ -5,7 +5,7 @@ from leworldmodel.additional_files import run_randgoal_control
 
 def test_randgoal_control_retargets_data_eval_and_pair_geometry():
     cfg = run_randgoal_control.load_randgoal_control_configs()
-    arm = cfg["arms"]["control_aligned_pred1"]
+    arm = cfg["arms"]["randgoal_control_aligned_pred1"]
     joined = " ".join(arm["overrides"])
 
     assert "data.dataset.name=pusht_scripted_goal_train.lance" in joined
@@ -17,6 +17,7 @@ def test_randgoal_control_retargets_data_eval_and_pair_geometry():
         "+eval.dataset_name=pusht_scripted_goal_train.lance"
     ]
     assert arm["pair_suites"] == ["t_position"]
+    assert "control_aligned_pred1" not in cfg["arms"]
 
 
 def test_randgoal_control_does_not_mutate_original_control_grid():
