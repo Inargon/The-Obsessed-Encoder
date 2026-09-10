@@ -107,6 +107,18 @@ arms:
     control:
       <<: *masked_sequence_control
 
+  # RandGoal repair: within-episode control relations cannot identify a goal
+  # that is constant throughout the episode.  Cross-batch action-plan
+  # compatibility rewards state information that changes the expert's future
+  # decisions, while the aligned rule still gates prediction at the encoder.
+  decision_aligned_pred1:
+    overrides:
+      - +loss.pred_weight=1.0
+      - +loss.aligned_gradient_routing.enabled=true
+    control:
+      <<: *masked_sequence_control
+      action_plan_weight: 0.1
+
   # Mechanism ablation: retain only prediction gradient parallel to the
   # control gradient. This tests whether the softly retained orthogonal part
   # is important rather than merely making the rule more complicated.

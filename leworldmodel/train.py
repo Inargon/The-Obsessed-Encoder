@@ -89,6 +89,7 @@ def lejepa_forward(self, batch, stage, cfg):
             "reachability_accuracy",
             "reachability_shuffled_accuracy",
             "reachability_action_margin",
+            "action_plan_accuracy",
             "prediction_control_grad_cosine",
             "prediction_orthogonal_gate",
             "prediction_grad_retained_fraction",

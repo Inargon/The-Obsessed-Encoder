@@ -46,6 +46,7 @@ class ControlObjective(nn.Module):
         inverse_weight: float = 1.0,
         cycle_weight: float = 0.5,
         reachability_weight: float = 0.1,
+        action_plan_weight: float = 0.0,
         mask_keep_prob: float = 0.5,
         temperature: float = 0.1,
         inverse_target: str = "mean",
@@ -67,6 +68,8 @@ class ControlObjective(nn.Module):
             raise ValueError("mask_keep_prob must be in (0, 1]")
         if temperature <= 0.0:
             raise ValueError("temperature must be positive")
+        if action_plan_weight < 0.0:
+            raise ValueError("action_plan_weight must be non-negative")
         if inverse_target not in {"mean", "sequence"}:
             raise ValueError("inverse_target must be 'mean' or 'sequence'")
         if mode == "factorized_reachability" and not 0 < context_dim < embed_dim:
@@ -79,6 +82,7 @@ class ControlObjective(nn.Module):
         self.inverse_weight = inverse_weight
         self.cycle_weight = cycle_weight
         self.reachability_weight = reachability_weight
+        self.action_plan_weight = action_plan_weight
         self.mask_keep_prob = mask_keep_prob
         self.temperature = temperature
         self.inverse_target = inverse_target
@@ -118,6 +122,23 @@ class ControlObjective(nn.Module):
         else:
             self.reach_queries = nn.ModuleDict()
             self.reach_key = nn.Identity()
+
+        # Cross-episode state/action compatibility.  Unlike inverse dynamics
+        # and within-episode reachability, this objective can reward an
+        # episode-constant but decision-relevant goal: the current state must
+        # select its own future action chunk over chunks from other samples.
+        if action_plan_weight > 0.0:
+            self.action_plan_queries = nn.ModuleDict({
+                str(h): _mlp(control_dim, hidden_dim, control_dim)
+                for h in range(1, max_horizon + 1)
+            })
+            self.action_plan_keys = nn.ModuleDict({
+                str(h): _mlp(h * action_dim, hidden_dim, control_dim)
+                for h in range(1, max_horizon + 1)
+            })
+        else:
+            self.action_plan_queries = nn.ModuleDict()
+            self.action_plan_keys = nn.ModuleDict()
 
     @property
     def uses_mask(self) -> bool:
@@ -206,6 +227,8 @@ class ControlObjective(nn.Module):
                 "reachability_accuracy": zero.detach(),
                 "reachability_shuffled_accuracy": zero.detach(),
                 "reachability_action_margin": zero.detach(),
+                "action_plan_loss": zero,
+                "action_plan_accuracy": zero.detach(),
                 "context_consistency_loss": context_consistency,
                 "dynamic_static_leak_loss": dynamic_static,
                 "dynamic_variance_loss": dynamic_variance,
@@ -218,6 +241,8 @@ class ControlObjective(nn.Module):
         reach_correct = []
         shuffled_correct = []
         action_margins = []
+        action_plan_terms = []
+        action_plan_correct = []
         for horizon in range(1, max_horizon + 1):
             start = control_emb[:, :-horizon]
             end = control_emb[:, horizon:]
@@ -236,6 +261,33 @@ class ControlObjective(nn.Module):
             inverse_term = F.smooth_l1_loss(predicted_actions, inverse_target)
             inverse_terms.append(inverse_term)
             inverse_by_horizon[f"inverse_horizon_{horizon}_loss"] = inverse_term
+
+            if self.action_plan_weight > 0.0 and emb.size(0) > 1:
+                # At each time index, action chunks from the other batch rows
+                # are counterfactual plans.  Matching the correct row requires
+                # state information that changes the expert's decision, which
+                # includes the visual destination in RandGoal.
+                for time_index in range(control_emb.size(1) - horizon):
+                    plan_start = control_emb[:, time_index]
+                    if self.uses_mask and self.training:
+                        plan_start, _ = self._paired_mask(plan_start, plan_start)
+                    plan_query = F.normalize(
+                        self.action_plan_queries[str(horizon)](plan_start), dim=-1
+                    )
+                    plan_key = F.normalize(
+                        self.action_plan_keys[str(horizon)](
+                            target_actions[:, time_index]
+                        ),
+                        dim=-1,
+                    )
+                    plan_logits = plan_query @ plan_key.T / self.temperature
+                    plan_target = torch.arange(emb.size(0), device=emb.device)
+                    action_plan_terms.append(
+                        F.cross_entropy(plan_logits, plan_target)
+                    )
+                    action_plan_correct.append(
+                        (plan_logits.argmax(dim=-1) == plan_target).float().mean()
+                    )
 
             if self.mode == "masked_reachability":
                 for time_index in range(emb.size(1) - horizon):
@@ -308,6 +360,14 @@ class ControlObjective(nn.Module):
                 cycle_loss = F.smooth_l1_loss(reconstructed, actions[:, :length])
 
         reachability_loss = torch.stack(reach_terms).mean() if reach_terms else zero
+        action_plan_loss = (
+            torch.stack(action_plan_terms).mean() if action_plan_terms else zero
+        )
+        action_plan_accuracy = (
+            torch.stack(action_plan_correct).mean().detach()
+            if action_plan_correct
+            else zero.detach()
+        )
         reachability_accuracy = (
             torch.stack(reach_correct).mean().detach() if reach_correct else zero.detach()
         )
@@ -359,6 +419,7 @@ class ControlObjective(nn.Module):
                 + self.dynamic_variance_weight * dynamic_variance
                 + self.dynamic_covariance_weight * dynamic_covariance
             )
+        total = total + self.action_plan_weight * action_plan_loss
         return {
             "control_loss": total,
             "inverse_dynamics_loss": inverse_loss,
@@ -367,6 +428,8 @@ class ControlObjective(nn.Module):
             "reachability_accuracy": reachability_accuracy,
             "reachability_shuffled_accuracy": reachability_shuffled_accuracy,
             "reachability_action_margin": reachability_action_margin,
+            "action_plan_loss": action_plan_loss,
+            "action_plan_accuracy": action_plan_accuracy,
             "context_consistency_loss": context_consistency,
             "dynamic_static_leak_loss": dynamic_static,
             "dynamic_variance_loss": dynamic_variance,

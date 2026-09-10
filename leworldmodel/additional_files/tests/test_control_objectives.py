@@ -92,6 +92,34 @@ def test_masked_reachability_reports_action_shuffle_diagnostics():
     assert torch.isfinite(terms["reachability_action_margin"])
 
 
+def test_action_plan_compatibility_trains_state_and_plan_heads():
+    emb, actions, pred_emb = _inputs()
+    objective = ControlObjective(
+        embed_dim=12,
+        action_dim=2,
+        mode="masked_reachability",
+        max_horizon=3,
+        inverse_target="sequence",
+        action_plan_weight=0.1,
+    )
+
+    terms = objective(emb, actions, pred_emb)
+    terms["control_loss"].backward()
+
+    assert torch.isfinite(terms["action_plan_loss"])
+    assert terms["action_plan_loss"] > 0
+    assert 0 <= terms["action_plan_accuracy"] <= 1
+    assert emb.grad is not None and torch.isfinite(emb.grad).all()
+    assert all(
+        parameter.grad is not None and torch.isfinite(parameter.grad).all()
+        for parameter in objective.action_plan_queries.parameters()
+    )
+    assert all(
+        parameter.grad is not None and torch.isfinite(parameter.grad).all()
+        for parameter in objective.action_plan_keys.parameters()
+    )
+
+
 def test_episode_constant_embedding_cannot_solve_within_episode_reachability():
     torch.manual_seed(11)
     episode_tag = torch.randn(5, 1, 12)
