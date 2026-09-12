@@ -12,9 +12,40 @@ os.environ.setdefault("MUJOCO_GL", "egl")
 
 import stable_worldmodel as swm
 import torch
+from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
 from additional_files.callbacks.goal_eval import GoalEvalCallback
+
+
+def load_inference_model(run_name: str, checkpoint: str):
+    """Load the JEPA core while dropping training-only control heads.
+
+    Control objectives are attached to the model during training and therefore
+    appear in aligned checkpoints, but they are not part of the model config and
+    are not used by CEM inference.  Keep strict loading for the remaining keys so
+    a genuine architecture mismatch still fails loudly.
+    """
+    root = Path(os.environ.get("STABLEWM_HOME", Path.home() / ".stable_worldmodel"))
+    checkpoint_dir = root / "checkpoints" / run_name
+    with (checkpoint_dir / "config.json").open() as handle:
+        config = json.load(handle)
+    state_dict = torch.load(
+        checkpoint_dir / checkpoint, map_location="cpu", weights_only=True
+    )
+    auxiliary_prefixes = ("control_objective.",)
+    stripped = [
+        key for key in state_dict if key.startswith(auxiliary_prefixes)
+    ]
+    state_dict = {
+        key: value
+        for key, value in state_dict.items()
+        if not key.startswith(auxiliary_prefixes)
+    }
+    model = instantiate(config)
+    model.load_state_dict(state_dict, strict=True)
+    print(f"loaded {run_name}/{checkpoint}; stripped {len(stripped)} training-only keys")
+    return model
 
 
 def main() -> None:
@@ -28,9 +59,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
-    model = swm.wm.utils.load_pretrained(
-        f"{args.run_name}/{args.checkpoint}"
-    ).to("cuda")
+    model = load_inference_model(args.run_name, args.checkpoint).to("cuda")
     model.eval().requires_grad_(False)
     model.interpolate_pos_encoding = True
 
