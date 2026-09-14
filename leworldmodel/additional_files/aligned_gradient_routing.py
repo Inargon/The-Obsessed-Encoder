@@ -13,6 +13,7 @@ def control_aligned_prediction_surrogate(
     orthogonal_mode: str = "cosine",
     shuffle_control: bool = False,
     routing_mode: str = "aligned",
+    minimum_retention: float = 0.0,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     """Protect control-aligned prediction and attenuate orthogonal capacity use.
 
@@ -34,6 +35,11 @@ def control_aligned_prediction_surrogate(
         "retention_matched_shuffled",
     }:
         raise ValueError(f"unknown routing_mode {routing_mode!r}")
+    if not 0.0 <= minimum_retention <= 1.0:
+        raise ValueError(
+            "minimum_retention must be in [0, 1], "
+            f"got {minimum_retention!r}"
+        )
 
     pred_grad = torch.autograd.grad(
         pred_loss, embedding, retain_graph=True, create_graph=False
@@ -111,6 +117,17 @@ def control_aligned_prediction_surrogate(
             control_grad = true_control_grad.roll(shift, dims=0)
             guide_shuffled = True
         safe_pred_grad, cosine, orthogonal_gate, dot = route_with(control_grad)
+
+    # Residual access to the unmodified prediction gradient prevents
+    # high-dimensional near-orthogonality from silently turning routing into
+    # an extreme encoder-side learning-rate reduction.  Zero reproduces the
+    # original aligned rule exactly; one reproduces the raw prediction
+    # gradient while leaving the control loss itself untouched.
+    if minimum_retention:
+        safe_pred_grad = (
+            minimum_retention * pred_grad
+            + (1.0 - minimum_retention) * safe_pred_grad
+        )
 
     correction = safe_pred_grad - pred_grad
 
