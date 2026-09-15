@@ -1,0 +1,147 @@
+\begin{figure*}[t]
+\centering
+\definecolor{predblue}{HTML}{3274A1}
+\definecolor{ctrlorange}{HTML}{D97818}
+\definecolor{routegreen}{HTML}{2F8F46}
+\definecolor{nuisred}{HTML}{B44747}
+\definecolor{panelgray}{HTML}{F3F4F6}
+\begin{tikzpicture}[
+    x=1cm,
+    y=1cm,
+    font=\sffamily\footnotesize,
+    >={Latex[length=2mm]},
+    box/.style={draw=black!48, rounded corners=2pt, fill=white,
+        minimum height=0.68cm, align=center, inner xsep=5pt},
+    latent/.style={box, fill=predblue!9, draw=predblue!70},
+    control/.style={box, fill=ctrlorange!11, draw=ctrlorange!85},
+    router/.style={box, fill=routegreen!11, draw=routegreen!85,
+        minimum width=1.55cm},
+    flow/.style={->, line width=0.65pt, draw=black!65},
+    predgrad/.style={->, dashed, line width=0.9pt, draw=predblue},
+    ctrlgrad/.style={->, dashed, line width=0.9pt, draw=ctrlorange},
+    routegrad/.style={->, line width=1.05pt, draw=routegreen},
+    note/.style={align=center, font=\sffamily\scriptsize},
+    paneltitle/.style={font=\sffamily\small\bfseries, anchor=west}
+]
+
+% ---------------------------------------------------------------------------
+% Panel A: failure mechanism
+% ---------------------------------------------------------------------------
+\node[paneltitle] at (0,4.25) {(a) One objective, two optimization permissions};
+
+\node[box, minimum width=1.15cm] (obsA) at (0.65,2.75)
+    {frames\\$o_t,o_{t+1}$};
+\node[note, text=nuisred] at (0.65,1.95)
+    {predictable\\watermark};
+\draw[nuisred, line width=1pt] (0.18,3.08) -- (0.42,3.08);
+
+\node[box, minimum width=1.15cm] (encA) at (2.25,2.75) {encoder\\$f_\theta$};
+\node[latent, minimum width=1cm] (zA) at (3.72,2.75) {$z_t$};
+\node[box, minimum width=1.2cm] (predA) at (5.15,2.75)
+    {predictor\\$p_\phi$};
+\node[latent, minimum width=1cm] (zhatA) at (6.62,2.75)
+    {$\widehat z_{t+1}$};
+\node[box, fill=predblue!9, draw=predblue!70, minimum width=1.15cm]
+    (lossA) at (5.9,1.35) {$\mathcal L_p$};
+
+\draw[flow] (obsA) -- (encA);
+\draw[flow] (encA) -- (zA);
+\draw[flow] (zA) -- (predA);
+\draw[flow] (predA) -- (zhatA);
+\draw[flow] (zhatA) |- (lossA);
+\draw[flow] (zA) |- (lossA);
+
+\draw[predgrad] (lossA.west) to[bend left=13]
+    node[note, below, text=predblue] {shapes representation} (encA.south);
+\draw[predgrad] (lossA.north) to[bend left=15]
+    node[note, right, text=predblue] {fits dynamics} (predA.south);
+
+\node[note, text=nuisred, align=left] at (3.05,0.48)
+    {Easy prediction can dominate the metric\\without global representation collapse.};
+
+% Divider
+\draw[black!18] (7.25,0.15) -- (7.25,4.2);
+
+% ---------------------------------------------------------------------------
+% Panel B: asymmetric interface
+% ---------------------------------------------------------------------------
+\node[paneltitle] at (7.7,4.25) {(b) Control-guided predictive gradient admission};
+
+\node[box, minimum width=1.05cm] (encB) at (8.35,2.75)
+    {encoder\\$f_\theta$};
+\node[latent, minimum width=0.85cm] (zB) at (9.75,2.75) {$z$};
+\node[box, minimum width=1.15cm] (predB) at (11.15,3.35)
+    {predictor\\$p_\phi$};
+\node[control, minimum width=1.15cm] (ctrlB) at (11.15,2.05)
+    {control head\\$q_\psi$};
+\node[box, fill=predblue!9, draw=predblue!70] (lpB) at (12.75,3.35)
+    {$\mathcal L_p$};
+\node[control] (lcB) at (12.75,2.05) {$\mathcal L_c$};
+\node[router] (routerB) at (12.0,0.8) {admission\\$R(g_p,g_c)$};
+
+\draw[flow] (encB) -- (zB);
+\draw[flow] (zB) -- (predB);
+\draw[flow] (zB) -- (ctrlB);
+\draw[flow] (predB) -- (lpB);
+\draw[flow] (ctrlB) -- (lcB);
+
+\draw[predgrad] (lpB.south) -- node[note, right, text=predblue]
+    {$g_p$} (routerB.north east);
+\draw[ctrlgrad] (lcB.south) -- node[note, right, text=ctrlorange]
+    {$g_c$} (routerB.north west);
+\draw[routegrad] (routerB.west) -| node[note, below, text=routegreen,
+    pos=0.28] {routed} (encB.south);
+\draw[predgrad] (lpB.north) to[bend left=22]
+    node[note, above, text=predblue] {full prediction gradient} (predB.north);
+
+\node[note, align=left] at (9.25,0.42)
+    {Pixels + actions only;\\no privileged state labels.};
+
+% Divider
+\draw[black!18] (13.75,0.15) -- (13.75,4.2);
+
+% ---------------------------------------------------------------------------
+% Panel C: routing geometry and falsifiers
+% ---------------------------------------------------------------------------
+\node[paneltitle] at (14.15,4.25) {(c) What happens to $g_p$?};
+
+\coordinate (O) at (14.45,1.55);
+\coordinate (P) at (16.75,3.35);
+\coordinate (Q) at (15.25,2.85);
+\draw[->, line width=1pt, draw=predblue] (O) -- (P)
+    node[above right, text=predblue] {$g_p$};
+\draw[->, line width=1pt, draw=ctrlorange] (O) -- (Q)
+    node[above left, text=ctrlorange] {$g_c$};
+\draw[dashed, draw=black!45] (Q) -- (P)
+    node[midway, right, text=black!60] {$g_\perp$};
+\draw[->, line width=1.15pt, draw=routegreen] (O) -- ($(O)!0.72!(Q)$)
+    node[midway, left, text=routegreen] {$R$};
+
+\node[note, anchor=west, align=left] at (14.15,1.02)
+    {\textbf{Hard:} attenuate unsupported $g_\perp$};
+\node[note, anchor=west, align=left] at (14.15,0.62)
+    {\textbf{Soft:} $\beta g_p+(1-\beta)R$};
+\node[note, anchor=west, align=left] at (14.15,0.22)
+    {\textbf{Conflict-only:} preserve $g_\perp$};
+
+% Background panels, drawn last on background layer.
+\begin{pgfonlayer}{background}
+    \node[fill=panelgray, rounded corners=3pt, fit={(0,-0.02) (7.0,4.55)},
+        inner sep=0pt] {};
+    \node[fill=panelgray, rounded corners=3pt, fit={(7.5,-0.02) (13.5,4.55)},
+        inner sep=0pt] {};
+    \node[fill=panelgray, rounded corners=3pt, fit={(14.0,-0.02) (17.65,4.55)},
+        inner sep=0pt] {};
+\end{pgfonlayer}
+
+\end{tikzpicture}
+\caption{\textbf{Separating predictor fitting from encoder allocation.}
+(a) In a standard predictive JEPA, the same loss both fits the predictor and
+shapes the encoder, allowing an easy nuisance to organize latent geometry.
+(b) \shortmethod{} leaves the predictor's gradient unchanged but routes the
+encoder-side prediction gradient using a non-privileged control objective.
+(c) Hard, soft, and negative-conflict-only variants test whether suppressing
+near-orthogonal prediction updates removes nuisance takeover or discards
+planning-relevant dynamics.}
+\label{fig:method-overview}
+\end{figure*}
