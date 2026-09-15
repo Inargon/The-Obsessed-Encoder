@@ -66,11 +66,17 @@ def measure_component_gradient_geometry(
     # Row-normalized component gradients form a small per-sample matrix.  Its
     # row span is invariant to the original loss scales and exposes how much
     # prediction-gradient energy is covered jointly by all control signals.
-    basis = torch.stack(normalized_components, dim=1)
-    gram = basis @ basis.transpose(1, 2)
-    rhs = (basis @ pred.unsqueeze(2)).squeeze(2)
-    coefficients = (torch.linalg.pinv(gram) @ rhs.unsqueeze(2)).squeeze(2)
-    projection = (coefficients.unsqueeze(2) * basis).sum(dim=1)
+    # Lightning trains under mixed precision.  CUDA autocast would turn the
+    # small matrix products back into bfloat16 even though `_flat_gradient`
+    # explicitly returns float32, while `linalg.pinv` requires float/complex.
+    # Keep this diagnostic-only solve in float32.
+    with torch.autocast(device_type=embedding.device.type, enabled=False):
+        basis = torch.stack(normalized_components, dim=1).float()
+        pred_float = pred.float()
+        gram = basis @ basis.transpose(1, 2)
+        rhs = (basis @ pred_float.unsqueeze(2)).squeeze(2)
+        coefficients = (torch.linalg.pinv(gram) @ rhs.unsqueeze(2)).squeeze(2)
+        projection = (coefficients.unsqueeze(2) * basis).sum(dim=1)
     metrics["component_grad/joint_span/retained_fraction"] = (
         projection.norm(dim=1) / pred_norm.clamp_min(eps)
     ).mean()
