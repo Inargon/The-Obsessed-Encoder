@@ -1,0 +1,65 @@
+\section{Introduction}
+
+Joint-embedding predictive architectures (JEPAs) offer an attractive route to
+visual world models: encode observations, predict future embeddings under
+candidate actions, and plan using distances in the learned latent space.
+LeWorldModel (LeWM) demonstrates that this recipe can be trained end-to-end
+from pixels with a compact prediction objective and a statistical
+anti-collapse regularizer \citep{maes2026leworldmodel}.  Yet preventing global
+collapse does not ensure that the finite latent budget is allocated to the
+factors needed by a planner.
+
+The Obsessed Encoder study makes this distinction concrete
+\citep{enigma2026obsessed}.  A tiny, low-entropy, temporally predictable visual
+tag can occupy a disproportionate share of a JEPA representation.  The model
+continues to satisfy its anti-collapse objective and can achieve low latent
+prediction error, but its planner compares observations largely by the tag
+rather than by task content.  Filtering static information is not a general
+solution: a task goal can itself be static.  The relevant distinction is not
+dynamic versus static, but whether changing a factor changes future decisions.
+
+We begin from a simple observation.  The latent prediction loss has two
+separable effects.  It must train the predictor to map a current latent and an
+action to a future latent.  At the same time, its gradient through the target
+and context encoders determines what the representation becomes.  These roles
+need not receive identical optimization access.  We therefore preserve the
+full predictive learning signal for the predictor, but treat its encoder-side
+gradient as a proposal whose priority is informed by an action-derived control
+objective.
+
+This intervention is deliberately narrower than claiming that action
+supervision identifies every useful physical variable.  Inverse dynamics can
+make action-relevant information decodable without ensuring that it dominates
+the planner-facing metric.  Conversely, a direction orthogonal to the current
+inverse-dynamics gradient may encode already learned control information,
+long-horizon consequences, or a goal variable absent from the short-horizon
+proxy.  Our central question is therefore:
+
+\begin{quote}
+How can a predictive world model reduce nuisance takeover while retaining a
+reliable learning path for dynamics not yet covered by its control guide?
+\end{quote}
+
+Our contributions are:
+\begin{itemize}
+    \item We separate \emph{predictor fitting} from \emph{encoder allocation}
+    and diagnose predictable-nuisance failure at their optimization interface.
+    \item We introduce an asymmetric, per-sample rule that preserves full
+    predictor learning while admitting control-supported prediction gradients
+    into the encoder and attenuating unsupported components.
+    \item We show on watermarked PushT that planning failure can persist even
+    when physical variables are linearly decodable, whereas changing their
+    relative geometric prominence restores planning.
+    \item We introduce falsifying ablations---negative-conflict-only routing,
+    norm-matched scalar attenuation, shuffled guides, soft residual admission,
+    and component-gradient span diagnostics---to determine whether gains arise
+    from direction selection or merely reduced prediction-gradient magnitude.
+    \item We evaluate the boundary between nuisance suppression and dynamics
+    preservation across five task settings without using privileged physical
+    state during training.
+\end{itemize}
+
+We do not claim to invent gradient surgery.  Our contribution is the failure
+mechanism, the asymmetric JEPA encoder--predictor interface, and an empirical
+account of which parts of predictive learning should be allowed to organize a
+planner-facing representation.

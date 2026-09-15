@@ -1,0 +1,72 @@
+\section{Experiments}
+
+\subsection{Questions}
+
+Our evaluation is organized around five questions:
+\begin{enumerate}
+    \item Does an easy predictable tag dominate planning geometry despite
+    healthy anti-collapse statistics?
+    \item Does action supervision merely make physical information decodable,
+    or does it also make that information load-bearing for planning?
+    \item Are gains explained by negative-conflict removal, generic prediction
+    attenuation, or sample-specific control direction?
+    \item Can soft residual admission preserve Reacher dynamics without
+    restoring watermark dominance on PushT?
+    \item What happens when a static factor is decision-causal, as in RandGoal?
+\end{enumerate}
+
+\subsection{Tasks and nuisance construction}
+
+We use PushT, RandGoal, TwoRooms, OGBench-Cube, and Reacher under the LeWM
+training and latent-space planning framework.  The tagged condition adds a
+small episode-constant visual watermark that is predictable but does not alter
+the environment transition or expert decision.  Clean and tagged variants
+share trajectories, optimization, architecture, and planner settings whenever
+possible.
+
+RandGoal is a deliberate counterexample to static-feature filtering.  Holding
+physical state fixed while changing the goal changes the expert's future
+actions; the goal is therefore decision-causal even when it remains constant
+within an episode.  A random watermark changes neither action selection nor
+transition dynamics.  A successful allocation method should suppress the
+latter without erasing the former.
+
+\subsection{Metrics and protocol}
+
+Planning is evaluated with the same CEM configuration, candidate budget,
+evaluation seeds, and checkpoint rule within each matched comparison.  We
+report success rate over complete learning curves, a predeclared late-window
+mean, and final performance; single 50-episode peaks are diagnostic only.
+Selected comparisons use at least three training seeds and 200--500 evaluation
+episodes per selected checkpoint.
+
+Representation evaluation includes same-content and same-tag cosine
+similarity, frozen probes for task variables and tag identity, prediction and
+control losses, gradient cosine, negative-conflict fraction, and admitted
+prediction-gradient norm.  The content--tag margin is
+\begin{equation}
+    m=\mathrm{cos}_{\mathrm{same\ content}}-
+    \mathrm{cos}_{\mathrm{same\ tag}}.
+\end{equation}
+Positive $m$ indicates that task content, rather than watermark identity,
+organizes the representation.  Probe accuracy is interpreted only as
+decodability; it does not establish causal use by the planner.
+
+\subsection{Matched methods}
+
+We compare LeWM, identical-head IDM/control-only training, summed prediction
+and control losses, hard \shortmethod{}, soft admission with
+$\beta\in\{0.25,0.5,0.75\}$, the conflict-only comparator in
+Eq.~\ref{eq:pcgrad-comparator}, norm-matched scalar attenuation, and a
+retention-matched shuffled guide.  State alignment is discussed as a
+privileged-supervision reference but is not included as a like-for-like
+training baseline.
+
+\subsection{Predeclared interpretation}
+
+Soft admission is considered successful only if one shared setting improves
+Reacher while retaining the PushT watermark benefit; choosing a different
+$\beta$ per task is not evidence for a general method.  Conflict-only routing
+tests whether negative interference suffices.  The component-span diagnostic
+tests the high-dimensional orthogonality objection.  Multi-seed experiments
+are promoted only after these seed-zero mechanism checks pass.

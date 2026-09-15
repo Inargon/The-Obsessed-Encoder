@@ -1,0 +1,35 @@
+\section{Limitations and Discussion}
+
+The control guide is neither a semantic oracle nor a complete characterization
+of planning relevance.  It can exploit a shortcut, omit a static goal, or
+produce a small gradient after its decoder has learned an important feature.
+The hard rule consequently provides optimization priority, not a guarantee of
+physical sufficiency.  Soft residual admission makes this uncertainty explicit
+but may allow a nuisance to accumulate again over long training.
+
+Our geometric and frozen-probe analyses establish representation structure and
+decodability, not causal use.  A future-latent intervention that permutes
+candidate action--outcome pairings inside CEM is needed to show that improved
+predictions actually determine selected actions.  Likewise, current principal
+results begin with seed zero and 50-episode checkpoint evaluations.  Final
+claims require multiple training seeds, more evaluation episodes, and
+predeclared checkpoint aggregation.
+
+Finally, the observed watermark collapse is task dependent: tagged TwoRooms
+and Cube baselines degrade less severely than tagged PushT.  This variation is
+scientifically useful because it prevents the method from being presented as a
+universal filter.  The broader claim is that predictive objectives can
+misallocate a planner-facing representation, and that their encoder-side
+optimization authority should be measured and controlled.
+
+\section{Conclusion}
+
+Predictive accuracy and representation utility are not interchangeable.  A
+JEPA predictor may learn a visually predictable factor that is irrelevant to
+future decisions, while a short-horizon control loss may fail to cover
+information essential for long-horizon planning.  By separating predictor
+learning from encoder allocation, \shortmethod{} provides a practical probe
+and intervention at this boundary.  The resulting evidence supports a more
+careful principle: use control signals to prioritize predictive updates, but
+do not interpret instantaneous orthogonality as proof that an update is
+useless.

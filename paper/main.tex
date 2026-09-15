@@ -1,0 +1,61 @@
+\documentclass[10pt,twocolumn]{article}
+
+\usepackage[margin=0.72in]{geometry}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage{natbib}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+
+\newcommand{\method}{Control-Guided Predictive Gradient Admission}
+\newcommand{\shortmethod}{CGPA}
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\R}{\mathbb{R}}
+\DeclareMathOperator{\proj}{proj}
+
+\title{Who Shapes the Encoder?\\
+Control-Guided Prediction for Latent World Models}
+\author{Anonymous Authors}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Joint-embedding predictive world models learn compact latent dynamics by
+predicting future representations rather than pixels.  Their prediction
+objective, however, plays two roles at once: it trains a dynamics predictor
+and determines which observable factors are allowed to shape the shared
+encoder.  A small predictable nuisance can consequently dominate latent
+geometry while anti-collapse statistics and even task-variable decodability
+remain healthy.  We study this failure in action-conditioned visual world
+models and distinguish information presence from information allocation.
+We introduce \method{} (\shortmethod{}), an asymmetric optimization interface
+that preserves the complete prediction gradient for the predictor while
+selectively admitting it into the encoder according to an action-derived
+control signal.  On a watermarked PushT benchmark, the method reverses the
+representation from nuisance-dominated to content-dominated geometry while
+retaining physical-state decodability and improving latent-space planning.
+Experiments across PushT, RandGoal, TwoRooms, OGBench-Cube, and Reacher expose
+an important boundary: an instantaneous control gradient is evidence about
+decision relevance, not a complete certificate of it.  We therefore evaluate
+soft residual admission, negative-conflict-only routing, and multi-component
+control-gradient subspaces to separate directional guidance from generic
+gradient attenuation.  Our results frame predictable-nuisance failure as an
+optimization-allocation problem and clarify when action-only supervision can
+and cannot protect planning-relevant representations.
+\end{abstract}
+
+\input{sections/introduction}
+\input{sections/related_work}
+\input{sections/method}
+\input{sections/experiments}
+\input{sections/results}
+\input{sections/limitations}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

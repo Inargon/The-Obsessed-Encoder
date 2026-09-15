@@ -1,0 +1,93 @@
+\section{Results and Current Evidence}
+
+\subsection{Watermarked PushT}
+
+The strongest completed result is a sustained geometric reversal in the
+watermarked PushT setting.  At the end of the full seed-zero run, hard
+\shortmethod{} yields same-content cosine $0.807$ and same-tag cosine $0.176$,
+for a margin of $+0.631$.  Its final planning success is $0.80$, the mean of the
+last ten evaluations is $0.774$, and the best 50-episode checkpoint reaches
+$0.88$.  The peak is not used as the primary estimate.
+
+Frozen probes show why this is not simply information deletion.  Relative to
+a prediction-weight control, the projection-space block-angle probe remains
+essentially unchanged ($0.800$ versus $0.795$), while tag RGB $R^2$ decreases
+from $0.889$ to $0.502$.  The pusher and block positions also remain strongly
+decodable.  The intervention therefore changes relative geometric prominence
+more clearly than raw task-variable availability.
+
+At convergence, the mean prediction/control cosine is approximately $0.072$
+and only about $0.106$ of the raw prediction-gradient norm is admitted.  This
+explains both the watermark resistance and the central concern of this paper:
+hard admission may act as an aggressive encoder-side prediction bottleneck.
+
+\subsection{Magnitude versus direction}
+
+In matched 10k screening runs, norm-matched scalar attenuation reaches success
+$0.42$, hard routing $0.36$, and a retention-matched shuffled guide $0.28$.
+The scalar result shows that a substantial fraction of the early benefit can
+come from limiting prediction-gradient magnitude.  The shuffled-guide gap is
+preliminary evidence that correct sample-specific correspondence also matters.
+Full schedules and multiple seeds are required before assigning either effect
+priority.
+
+\subsection{Cross-task snapshot}
+
+Table~\ref{tab:cross-task} records completed seed-zero checkpoints.  The rows
+mix 10k screening and full schedules and therefore document current evidence,
+not a final leaderboard.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Current matched seed-zero planning success. ``Full'' and ``10k'' are
+not compared across rows. Reacher uses the recovered historical evaluation
+protocol at epoch 5.}
+\label{tab:cross-task}
+\begin{tabular}{llccc}
+\toprule
+Task & Condition & Schedule & LeWM & Hard \shortmethod{} \\
+\midrule
+TwoRooms & clean  & 10k  & 0.88 & 0.90 \\
+TwoRooms & tagged & 10k  & 0.60 & 0.98 \\
+Cube     & clean  & full & 0.70 & 0.76 \\
+Cube     & tagged & full & 0.74 & 0.84 \\
+Reacher  & clean  & epoch 5 & 0.76 & 0.66 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+TwoRooms and Cube do not reproduce the same catastrophic tagged-baseline
+collapse as PushT.  They remain useful as robustness checks, but cannot by
+themselves support a universal nuisance-removal claim.  Reacher exposes the
+opposite failure boundary: hard routing can suppress predictive learning that
+the planner still needs.
+
+\subsection{Reacher and residual admission}
+
+A one-epoch diagnostic under the historical evaluator gives success $0.78$
+for LeWM, $0.70$ for hard routing, and $0.82$ for both control-only and
+$\beta=0.75$ soft admission.  Each number is based on only 50 evaluation
+episodes and is therefore a screening signal, not a final result.  The full
+$\beta=0.75$ Reacher run and the paired tagged-PushT guardrail are in progress.
+Their joint outcome decides whether a residual prediction path repairs the
+failure or simply reintroduces the predictable shortcut.
+
+\subsection{Static but decision-causal goals}
+
+RandGoal shows that within-episode inverse dynamics is an incomplete guide for
+static task variables.  A goal can change the expert action distribution while
+remaining absent from short local transition residuals.  Current action-only
+routing does not yet establish a reliable improvement in this setting.  We
+retain RandGoal as a boundary condition rather than hiding it: suppressing all
+static information would solve the watermark benchmark for the wrong reason.
+
+\subsection{Pending mechanism tests}
+
+The conflict-only PushT run tests whether the relatively rare negative
+gradient conflicts explain the gain.  The component-gradient diagnostic
+measures individual horizons and their joint span on tagged PushT and clean
+Reacher.  We will replace this paragraph with complete curves and confidence
+intervals after the predeclared runs finish.  \todo{Insert conflict-only,
+soft75 guardrail, and component-span results; then promote selected variants
+to seeds 1--2.}

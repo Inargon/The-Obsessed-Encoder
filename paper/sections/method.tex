@@ -1,0 +1,108 @@
+\section{Method}
+
+\subsection{Predictive learning and control guidance}
+
+Let $o_t$ be an image, $a_t$ an action, and
+$z_t=f_\theta(o_t)\in\R^d$ an encoder representation.  A predictor
+$p_\phi$ estimates a future representation,
+\begin{equation}
+    \widehat z_{t+1}=p_\phi(z_t,a_t), \qquad
+    \mathcal L_p=\|\widehat z_{t+1}-z_{t+1}\|_2^2.
+\end{equation}
+The base model combines $\mathcal L_p$ with a statistical regularizer that
+prevents complete representation collapse.  We add a control objective
+$\mathcal L_c$ constructed from inverse action prediction over one or more
+horizons, with optional action-cycle and reachability terms.  It uses images,
+actions, and trajectories, but no simulator state.
+
+Simply optimizing $\mathcal L_p+\lambda_c\mathcal L_c$ does not determine which
+objective organizes the shared metric.  We instead inspect their per-sample
+gradients at the representation interface,
+\begin{equation}
+    g_p=\nabla_z\mathcal L_p, \qquad
+    g_c=\nabla_z\mathcal L_c.
+\end{equation}
+Writing
+\begin{equation}
+    \alpha=\frac{g_p^\top g_c}{\|g_c\|_2^2+\epsilon},\quad
+    g_{\parallel}=\alpha g_c,\quad
+    g_\perp=g_p-g_{\parallel},
+\end{equation}
+separates the prediction proposal into components parallel and orthogonal to
+the current control gradient.
+
+\subsection{Control-guided admission}
+
+Our hard admission rule is
+\begin{equation}
+\label{eq:hard-routing}
+    R(g_p,g_c)=[\alpha]_+g_c+
+    [\cos(g_p,g_c)]_+g_\perp.
+\end{equation}
+A positively aligned parallel component is retained in full; a conflicting
+parallel component is removed; and the orthogonal component is scaled by
+non-negative cosine similarity.  Crucially, Eq.~\ref{eq:hard-routing} replaces
+the prediction gradient only at the encoder interface.  Parameters exclusive
+to $p_\phi$ receive the complete gradient of $\mathcal L_p$.
+
+This construction has limited, local guarantees.  It satisfies
+\begin{equation}
+    g_c^\top R(g_p,g_c)=[g_p^\top g_c]_+\geq0
+\end{equation}
+and explicitly bounds the admitted orthogonal energy.  Under direct Euclidean
+optimization of $z$, the routed prediction term therefore cannot worsen the
+current control objective to first order.  This statement does not extend
+automatically through the encoder Jacobian, Adam state, stochastic batches, or
+long training horizons.
+
+\subsection{A residual learning path}
+
+The control loss gradient is a current learning demand, not a stable measure
+of information importance.  Once a control component is predicted correctly,
+its residual and gradient can become small even though the corresponding
+representation remains essential.  To avoid treating lack of present evidence
+as proof of irrelevance, we define soft admission
+\begin{equation}
+\label{eq:soft-routing}
+    \widetilde g_p^{(\beta)}=
+    \beta g_p+(1-\beta)R(g_p,g_c),\qquad \beta\in[0,1].
+\end{equation}
+Here $\beta=0$ recovers hard routing and $\beta=1$ recovers the raw prediction
+gradient.  This residual path cannot guarantee that only physical information
+is retained; it tests whether hard routing closes learning channels needed by
+tasks such as Reacher.
+
+\subsection{Falsifying comparators}
+
+\paragraph{Negative-conflict-only routing.}
+Our PCGrad-style comparator preserves every orthogonal component:
+\begin{equation}
+\label{eq:pcgrad-comparator}
+\widetilde g_p=
+\begin{cases}
+g_p,&g_p^\top g_c\geq0,\\
+g_p-\proj_{g_c}(g_p),&g_p^\top g_c<0.
+\end{cases}
+\end{equation}
+If negative conflicts are rare and this comparator behaves like the baseline,
+then conflict removal cannot explain the main effect.
+
+\paragraph{Magnitude and correspondence controls.}
+Norm-matched scalar attenuation preserves the direction of $g_p$ but matches
+the norm produced by Eq.~\ref{eq:hard-routing}.  A retention-matched shuffled
+guide uses a different sample's control axis while matching the admitted norm.
+Together they separate generic encoder learning-rate reduction from correct
+sample-specific direction.
+
+\paragraph{Component-gradient span.}
+Let $g_{c,1},\ldots,g_{c,K}$ be gradients of individual inverse horizons,
+cycle consistency, and reachability terms.  We measure both their individual
+cosines with $g_p$ and the fraction
+\begin{equation}
+    \frac{\|\proj_{\mathrm{span}(g_{c,1},\ldots,g_{c,K})}g_p\|_2}
+    {\|g_p\|_2}.
+\end{equation}
+This reveals whether an apparently orthogonal summed guide hides distinct
+useful directions or destructive cancellation.  Routing with respect to this
+span is a candidate extension, not part of the primary method until the
+diagnostic supports it.

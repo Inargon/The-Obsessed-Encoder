@@ -1,0 +1,40 @@
+\section{Related Work}
+
+\paragraph{Latent predictive world models.}
+LeWM combines next-embedding prediction with SIGReg and performs model-based
+planning directly in the learned representation \citep{maes2026leworldmodel}.
+We retain its model and planner and study a failure that remains invisible to
+global anti-collapse statistics: a representation can be diverse yet allocate
+its useful geometry to an easy nuisance.  The Enigma case study identifies
+this predictable-feature takeover across modern JEPA systems
+\citep{enigma2026obsessed}; our work asks how the optimization interface can be
+changed without defining the nuisance in advance.
+
+\paragraph{Action and state grounding.}
+Inverse dynamics is a natural non-privileged signal because actions accompany
+robot trajectories and force transitions to retain action-readable
+information.  Recent physically grounded JEPA work combines inverse dynamics
+with direct state alignment \citep{liu2026physicallygrounded}.  Physical state
+provides a strong reference but is not always available and changes the
+supervision setting.  We use only pixels, actions, and temporal organization
+during training.  More importantly, we distinguish adding a control loss from
+regulating how the prediction loss reshapes the shared encoder.
+
+\paragraph{Gradient interaction.}
+Gradient similarity has long been used to decide whether an auxiliary update
+helps a main task \citep{du2018auxiliary}.  Auxiliary Task Update Decomposition
+separates helpful, harmful, and locally neutral components
+\citep{dery2021atud}.  PCGrad removes only negatively conflicting task-gradient
+components and preserves orthogonal updates \citep{yu2020pcgrad}.  Bloop also
+protects an orthogonal auxiliary component, using an exponential moving average
+to stabilize stochastic projections \citep{hsieh2024bloop}.  These works make
+it especially important not to equate orthogonality with irrelevance.
+
+Our setting reverses the usual priority: the predictive objective is the
+high-bandwidth auxiliary signal whose access to the encoder is regulated by a
+control guide, while the prediction head still receives its unmodified
+gradient.  Moreover, the observed failure is dominated by near-orthogonal
+rather than negative-conflict updates.  We consequently include PCGrad-style
+conflict removal as a necessary comparator and treat attenuation of the
+orthogonal component as a testable modeling choice, not a theorem about its
+semantic content.
