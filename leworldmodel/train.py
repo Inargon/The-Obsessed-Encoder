@@ -19,6 +19,9 @@ from additional_files import callbacks
 from additional_files.allocation_regularizers import AllocationRegularizer
 from additional_files.control_objectives import ControlObjective
 from additional_files.aligned_gradient_routing import control_aligned_prediction_surrogate
+from additional_files.component_gradient_diagnostics import (
+    measure_component_gradient_geometry,
+)
 from additional_files.pixel_tag import attach_pixel_tag, tag_from_cfg
 # <<< obsessed-encoder
 
@@ -71,6 +74,44 @@ def lejepa_forward(self, batch, stage, cfg):
         route_cfg = cfg.loss.get("aligned_gradient_routing")
         route_enabled = route_cfg and route_cfg.get("enabled", True)
         route_active = stage == "fit" and self.training and torch.is_grad_enabled()
+        component_diag_cfg = cfg.loss.get("component_gradient_diagnostics")
+        component_diag_enabled = (
+            component_diag_cfg
+            and component_diag_cfg.get("enabled", True)
+            and route_active
+            and int(self.global_step)
+            % int(component_diag_cfg.get("every_n_steps", 100))
+            == 0
+        )
+        if component_diag_enabled:
+            control_cfg = cfg.loss.control
+            horizon_keys = sorted(
+                key
+                for key in output
+                if key.startswith("inverse_horizon_") and key.endswith("_loss")
+            )
+            components = {}
+            if horizon_keys:
+                inverse_scale = float(control_cfg.get("inverse_weight", 1.0)) / len(
+                    horizon_keys
+                )
+                components.update(
+                    {key.removesuffix("_loss"): inverse_scale * output[key]
+                     for key in horizon_keys}
+                )
+            for key, weight_name in (
+                ("action_cycle_loss", "cycle_weight"),
+                ("reachability_loss", "reachability_weight"),
+                ("action_plan_loss", "action_plan_weight"),
+            ):
+                weight = float(control_cfg.get(weight_name, 0.0))
+                if weight and key in output:
+                    components[key.removesuffix("_loss")] = weight * output[key]
+            output.update(
+                measure_component_gradient_geometry(
+                    pred_weight * output["pred_loss"], components, emb
+                )
+            )
         if route_enabled and route_active:
             pred_component = pred_weight * output["pred_loss"]
             route_kwargs = OmegaConf.to_container(route_cfg, resolve=True)
@@ -99,6 +140,7 @@ def lejepa_forward(self, batch, stage, cfg):
             "prediction_norm_match_error",
             "prediction_direction_cosine_to_aligned",
         }
+        or k.startswith("component_grad/")
     }
     self.log_dict(metrics_dict, on_step=True, sync_dist=True)
     return output
