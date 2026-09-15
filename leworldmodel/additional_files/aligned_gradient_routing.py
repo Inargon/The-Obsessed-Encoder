@@ -31,6 +31,7 @@ def control_aligned_prediction_surrogate(
         )
     if routing_mode not in {
         "aligned",
+        "conflict_only",
         "norm_matched_scalar",
         "retention_matched_shuffled",
     }:
@@ -52,7 +53,11 @@ def control_aligned_prediction_surrogate(
     pred_flat = pred_grad.float().flatten(1)
     pred_norm = pred_flat.norm(dim=1)
 
-    def route_with(guide_grad: torch.Tensor):
+    def route_with(
+        guide_grad: torch.Tensor,
+        *,
+        preserve_orthogonal: bool = False,
+    ):
         guide_flat = guide_grad.float().flatten(1)
         dot = (pred_flat * guide_flat).sum(dim=1)
         guide_norm = guide_flat.norm(dim=1)
@@ -64,7 +69,12 @@ def control_aligned_prediction_surrogate(
             coefficient.clamp_min(0).to(embedding.dtype).view(view_shape)
             * guide_grad
         )
-        if orthogonal_mode == "drop":
+        if preserve_orthogonal:
+            # PCGrad-style comparator: remove only a genuinely conflicting
+            # control-parallel component.  A zero or positive dot product
+            # leaves the complete prediction gradient unchanged.
+            gate = torch.ones_like(cosine, dtype=embedding.dtype)
+        elif orthogonal_mode == "drop":
             gate = torch.zeros_like(cosine, dtype=embedding.dtype)
         else:
             gate = cosine.clamp(min=0, max=1).to(embedding.dtype)
@@ -91,7 +101,15 @@ def control_aligned_prediction_surrogate(
     control_grad = true_control_grad
     guide_shuffled = False
 
-    if routing_mode == "norm_matched_scalar":
+    if routing_mode == "conflict_only":
+        safe_pred_grad, cosine, orthogonal_gate, dot = route_with(
+            true_control_grad,
+            preserve_orthogonal=True,
+        )
+        # For this comparator, diagnostics should describe the PCGrad update
+        # itself rather than the stricter aligned-routing reference.
+        reference_safe = safe_pred_grad
+    elif routing_mode == "norm_matched_scalar":
         safe_pred_grad = match_reference_norm(pred_grad, reference_safe)
         cosine, orthogonal_gate, dot = true_cosine, true_gate, true_dot
     elif routing_mode == "retention_matched_shuffled" and embedding.size(0) > 1:

@@ -74,6 +74,60 @@ def test_parallel_only_drops_orthogonal_component():
     )
 
 
+def test_conflict_only_preserves_orthogonal_prediction_gradient():
+    embedding = torch.tensor([[1.0, 1.0]], requires_grad=True)
+    pred_loss = embedding[0, 0]
+    control_loss = embedding[0, 1]
+
+    gradient, diagnostics = _combined_gradient(
+        pred_loss,
+        control_loss,
+        embedding,
+        routing_mode="conflict_only",
+    )
+
+    torch.testing.assert_close(gradient, torch.tensor([[1.0, 1.0]]))
+    torch.testing.assert_close(
+        diagnostics["prediction_orthogonal_gate"], torch.tensor(1.0)
+    )
+
+
+def test_conflict_only_removes_only_negative_parallel_component():
+    embedding = torch.tensor([[1.0, 1.0]], requires_grad=True)
+    pred_loss = embedding.sum()
+    control_loss = -embedding[0, 0]
+
+    gradient, diagnostics = _combined_gradient(
+        pred_loss,
+        control_loss,
+        embedding,
+        routing_mode="conflict_only",
+    )
+
+    # The conflicting x component of prediction is removed; its orthogonal y
+    # component and the ordinary control gradient remain.
+    torch.testing.assert_close(gradient, torch.tensor([[-1.0, 1.0]]))
+    torch.testing.assert_close(
+        diagnostics["prediction_grad_retained_fraction"],
+        torch.tensor(1.0 / math.sqrt(2.0)),
+    )
+
+
+def test_conflict_only_leaves_positive_alignment_unchanged():
+    embedding = torch.tensor([[1.0, 1.0]], requires_grad=True)
+    pred_loss = embedding.sum()
+    control_loss = embedding[0, 0]
+
+    gradient, _ = _combined_gradient(
+        pred_loss,
+        control_loss,
+        embedding,
+        routing_mode="conflict_only",
+    )
+
+    torch.testing.assert_close(gradient, torch.tensor([[2.0, 1.0]]))
+
+
 def test_shuffled_control_breaks_sample_correspondence():
     embedding = torch.ones((2, 2), requires_grad=True)
     pred_loss = embedding[0, 0] + embedding[1, 1]
