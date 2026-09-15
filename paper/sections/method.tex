@@ -36,15 +36,15 @@ asymmetric interface and the three routing variants used to test it.
 
 \subsection{Control-guided admission}
 
-Our hard admission rule is
+Our zero-floor cosine admission rule is
 \begin{equation}
-\label{eq:hard-routing}
+\label{eq:cosine-routing}
     R(g_p,g_c)=[\alpha]_+g_c+
     [\cos(g_p,g_c)]_+g_\perp.
 \end{equation}
 A positively aligned parallel component is retained in full; a conflicting
 parallel component is removed; and the orthogonal component is scaled by
-non-negative cosine similarity.  Crucially, Eq.~\ref{eq:hard-routing} replaces
+non-negative cosine similarity.  Crucially, Eq.~\ref{eq:cosine-routing} replaces
 the prediction gradient only at the encoder interface.  Parameters exclusive
 to $p_\phi$ receive the complete gradient of $\mathcal L_p$.
 
@@ -70,9 +70,9 @@ as proof of irrelevance, we define soft admission
     \widetilde g_p^{(\beta)}=
     \beta g_p+(1-\beta)R(g_p,g_c),\qquad \beta\in[0,1].
 \end{equation}
-Here $\beta=0$ recovers hard routing and $\beta=1$ recovers the raw prediction
+Here $\beta=0$ recovers zero-floor cosine routing and $\beta=1$ recovers the raw prediction
 gradient.  This residual path cannot guarantee that only physical information
-is retained; it tests whether hard routing closes learning channels needed by
+is retained; it tests whether cosine-gated routing closes learning channels needed by
 tasks such as Reacher.
 
 \subsection{Falsifying comparators}
@@ -92,7 +92,7 @@ then conflict removal cannot explain the main effect.
 
 \paragraph{Magnitude and correspondence controls.}
 Norm-matched scalar attenuation preserves the direction of $g_p$ but matches
-the norm produced by Eq.~\ref{eq:hard-routing}.  A retention-matched shuffled
+the norm produced by Eq.~\ref{eq:cosine-routing}.  A retention-matched shuffled
 guide uses a different sample's control axis while matching the admitted norm.
 Together they separate generic encoder learning-rate reduction from correct
 sample-specific direction.
