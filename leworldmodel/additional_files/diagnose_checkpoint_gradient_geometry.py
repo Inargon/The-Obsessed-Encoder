@@ -193,7 +193,9 @@ def audit_checkpoint(
         coefficient = dot / ctrl_flat.square().sum(dim=1).clamp_min(eps)
         positive_parallel = coefficient.clamp_min(0.0).unsqueeze(1) * ctrl_flat
         orthogonal = pred_flat - coefficient.unsqueeze(1) * ctrl_flat
-        routed = gate.unsqueeze(1) * (positive_parallel + orthogonal)
+        # Match the training router exactly: retain a positively aligned
+        # parallel component in full and gate only the orthogonal component.
+        routed = positive_parallel + gate.unsqueeze(1) * orthogonal
         retained = routed.norm(dim=1) / pred_norm
 
         batch_values = {
