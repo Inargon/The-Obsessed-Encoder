@@ -9,6 +9,7 @@ so differences cannot be attributed to shuffled minibatches or masks.
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import random
@@ -169,11 +170,16 @@ def audit_checkpoint(
         )
         target = embedding[:, prediction_steps:]
         prediction_loss = (prediction - target).square().mean()
+        control_call_kwargs = {}
+        if "step_indices" in inspect.signature(
+            model.control_objective.forward
+        ).parameters:
+            control_call_kwargs["step_indices"] = batch.get("step_idx")
         control_metrics = model.control_objective(
             embedding,
             batch["action"],
             prediction,
-            step_indices=batch.get("step_idx"),
+            **control_call_kwargs,
         )
         control_loss = control_metrics["control_loss"]
 
