@@ -141,6 +141,8 @@ def audit_checkpoint(
         "cosine_admission_gate": [],
         "cosine_admission_retained_fraction": [],
         "conflict_fraction": [],
+        "shuffled_control_cosine": [],
+        "true_minus_shuffled_cosine": [],
     }
     prediction_losses = []
     control_losses = []
@@ -197,6 +199,12 @@ def audit_checkpoint(
         # parallel component in full and gate only the orthogonal component.
         routed = positive_parallel + gate.unsqueeze(1) * orthogonal
         retained = routed.norm(dim=1) / pred_norm
+        shuffled_ctrl = ctrl_flat.roll(1, dims=0)
+        shuffled_ctrl_norm = shuffled_ctrl.norm(dim=1).clamp_min(eps)
+        shuffled_cosine = (
+            (pred_flat * shuffled_ctrl).sum(dim=1)
+            / (pred_norm * shuffled_ctrl_norm)
+        ).clamp(-1.0, 1.0)
 
         batch_values = {
             "cosine": cosine,
@@ -205,6 +213,8 @@ def audit_checkpoint(
             "cosine_admission_gate": gate,
             "cosine_admission_retained_fraction": retained,
             "conflict_fraction": (cosine < 0.0).float(),
+            "shuffled_control_cosine": shuffled_cosine,
+            "true_minus_shuffled_cosine": cosine - shuffled_cosine,
         }
         for name, value in batch_values.items():
             collected[name].extend(value.detach().cpu().tolist())
