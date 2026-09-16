@@ -32,6 +32,15 @@ separates the prediction proposal into components parallel and orthogonal to
 the current control gradient.  Figure~\ref{fig:method-overview} summarizes the
 asymmetric interface and the three routing variants used to test it.
 
+Near-orthogonality is the geometric null expectation in high dimension, not
+evidence of semantic irrelevance.  For independent isotropic unit vectors in
+$\R^d$, the cosine has mean zero and variance $1/d$.  Consequently, a raw
+cosine gate will usually be small even when neither objective is pathological.
+Equation~\ref{eq:cosine-routing} must therefore be interpreted as both a
+directional preference and a strong prediction-allocation bottleneck.  Our
+ablations in Section~\ref{sec:orthogonality-challenge} are designed to separate
+these two effects.
+
 \input{figures/method_overview}
 
 \subsection{Control-guided admission}

@@ -128,6 +128,71 @@ def test_conflict_only_leaves_positive_alignment_unchanged():
     torch.testing.assert_close(gradient, torch.tensor([[2.0, 1.0]]))
 
 
+def test_orthogonal_only_removes_parallel_and_preserves_raw_orthogonal():
+    embedding = torch.tensor([[1.0, 1.0]], requires_grad=True)
+    pred_loss = embedding.sum()
+    control_loss = embedding[0, 0]
+
+    gradient, diagnostics = _combined_gradient(
+        pred_loss,
+        control_loss,
+        embedding,
+        routing_mode="orthogonal_only",
+    )
+
+    # The prediction x component is parallel to the control guide and is
+    # removed.  The raw orthogonal y component and ordinary control gradient
+    # remain.
+    torch.testing.assert_close(gradient, torch.tensor([[1.0, 1.0]]))
+    torch.testing.assert_close(
+        diagnostics["prediction_orthogonal_gate"], torch.tensor(1.0)
+    )
+    torch.testing.assert_close(
+        diagnostics["prediction_grad_retained_fraction"],
+        torch.tensor(1.0 / math.sqrt(2.0)),
+    )
+
+
+def test_gated_orthogonal_only_removes_parallel_and_keeps_cosine_gate():
+    embedding = torch.tensor([[1.0, 1.0]], requires_grad=True)
+    pred_loss = embedding.sum()
+    control_loss = embedding[0, 0]
+
+    gradient, diagnostics = _combined_gradient(
+        pred_loss,
+        control_loss,
+        embedding,
+        routing_mode="gated_orthogonal_only",
+    )
+
+    cosine = 1.0 / math.sqrt(2.0)
+    torch.testing.assert_close(gradient, torch.tensor([[1.0, cosine]]))
+    torch.testing.assert_close(
+        diagnostics["prediction_orthogonal_gate"], torch.tensor(cosine)
+    )
+    torch.testing.assert_close(
+        diagnostics["prediction_grad_retained_fraction"], torch.tensor(0.5)
+    )
+
+
+def test_component_fraction_diagnostics_reconstruct_prediction_geometry():
+    embedding = torch.tensor([[1.0, 1.0]], requires_grad=True)
+    _, diagnostics = _combined_gradient(
+        embedding.sum(),
+        embedding[0, 0],
+        embedding,
+        routing_mode="orthogonal_only",
+    )
+
+    expected = torch.tensor(1.0 / math.sqrt(2.0))
+    torch.testing.assert_close(
+        diagnostics["prediction_parallel_norm_fraction"], expected
+    )
+    torch.testing.assert_close(
+        diagnostics["prediction_orthogonal_norm_fraction"], expected
+    )
+
+
 def test_shuffled_control_breaks_sample_correspondence():
     embedding = torch.ones((2, 2), requires_grad=True)
     pred_loss = embedding[0, 0] + embedding[1, 1]

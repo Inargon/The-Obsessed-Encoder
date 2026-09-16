@@ -32,6 +32,8 @@ def control_aligned_prediction_surrogate(
     if routing_mode not in {
         "aligned",
         "conflict_only",
+        "orthogonal_only",
+        "gated_orthogonal_only",
         "norm_matched_scalar",
         "retention_matched_shuffled",
     }:
@@ -57,6 +59,7 @@ def control_aligned_prediction_surrogate(
         guide_grad: torch.Tensor,
         *,
         preserve_orthogonal: bool = False,
+        include_parallel: bool = True,
     ):
         guide_flat = guide_grad.float().flatten(1)
         dot = (pred_flat * guide_flat).sum(dim=1)
@@ -78,7 +81,10 @@ def control_aligned_prediction_surrogate(
             gate = torch.zeros_like(cosine, dtype=embedding.dtype)
         else:
             gate = cosine.clamp(min=0, max=1).to(embedding.dtype)
-        safe = positive_parallel + gate.view(view_shape) * orthogonal
+        admitted_parallel = positive_parallel if include_parallel else torch.zeros_like(
+            positive_parallel
+        )
+        safe = admitted_parallel + gate.view(view_shape) * orthogonal
         return safe, cosine, gate, dot
 
     def match_reference_norm(
@@ -109,6 +115,26 @@ def control_aligned_prediction_surrogate(
         # For this comparator, diagnostics should describe the PCGrad update
         # itself rather than the stricter aligned-routing reference.
         reference_safe = safe_pred_grad
+    elif routing_mode == "orthogonal_only":
+        # Remove the complete control-parallel prediction component while
+        # preserving the raw orthogonal component.  In high dimension this is
+        # expected to retain nearly all prediction-gradient norm and therefore
+        # isolates whether unsupported orthogonal access reproduces the JEPA
+        # shortcut failure.
+        safe_pred_grad, cosine, orthogonal_gate, dot = route_with(
+            true_control_grad,
+            preserve_orthogonal=True,
+            include_parallel=False,
+        )
+    elif routing_mode == "gated_orthogonal_only":
+        # Keep the cosine attenuation applied to the orthogonal component but
+        # remove the positive parallel term.  Comparing this with aligned
+        # routing isolates the contribution of control-aligned prediction from
+        # adaptive throttling of the unsupported component.
+        safe_pred_grad, cosine, orthogonal_gate, dot = route_with(
+            true_control_grad,
+            include_parallel=False,
+        )
     elif routing_mode == "norm_matched_scalar":
         safe_pred_grad = match_reference_norm(pred_grad, reference_safe)
         cosine, orthogonal_gate, dot = true_cosine, true_gate, true_dot
@@ -158,6 +184,16 @@ def control_aligned_prediction_surrogate(
     direction_cosine = (safe_pred_grad.float().flatten(1) * reference_flat).sum(1) / (
         safe_norm * reference_norm
     ).clamp_min(eps)
+    selected_guide_flat = control_grad.float().flatten(1)
+    selected_coefficient = (
+        pred_flat * selected_guide_flat
+    ).sum(dim=1) / selected_guide_flat.square().sum(dim=1).clamp_min(eps)
+    selected_parallel = (
+        selected_coefficient.to(embedding.dtype).view(view_shape) * control_grad
+    )
+    selected_orthogonal = pred_grad - selected_parallel
+    parallel_norm = selected_parallel.float().flatten(1).norm(dim=1)
+    orthogonal_norm = selected_orthogonal.float().flatten(1).norm(dim=1)
     diagnostics = {
         "prediction_control_grad_cosine": cosine.mean(),
         "prediction_orthogonal_gate": orthogonal_gate.float().mean(),
@@ -173,5 +209,11 @@ def control_aligned_prediction_surrogate(
             (safe_norm - reference_norm).abs() / reference_norm.clamp_min(eps)
         ).mean(),
         "prediction_direction_cosine_to_aligned": direction_cosine.mean(),
+        "prediction_parallel_norm_fraction": (
+            parallel_norm / pred_norm.clamp_min(eps)
+        ).mean(),
+        "prediction_orthogonal_norm_fraction": (
+            orthogonal_norm / pred_norm.clamp_min(eps)
+        ).mean(),
     }
     return surrogate, diagnostics

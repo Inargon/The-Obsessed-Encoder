@@ -62,6 +62,44 @@ retention-matched shuffled guide.  State alignment is discussed as a
 privileged-supervision reference but is not included as a like-for-like
 training baseline.
 
+\subsection{The orthogonality challenge}
+\label{sec:orthogonality-challenge}
+
+The central methodological objection is that near-orthogonality is common in
+high dimension.  A small value of $g_p^\top g_c$ therefore does not by itself
+show that the corresponding predictive update is task-irrelevant.  It can
+instead mean that the control guide is low-rank, that a useful control feature
+is already decoded with small residual error, that different control
+components cancel in their sum, or that prediction supplies dynamics needed
+only over a longer planning horizon.  We consequently do not treat
+orthogonality as a semantic label.  We test what operation on the orthogonal
+component is actually responsible for the planning result.
+
+Our identification strategy uses five matched interventions.  First,
+\emph{parallel-only hard drop} removes the entire orthogonal component; if it
+underperforms cosine admission, orthogonal predictive information is useful.
+Second, the conflict-only comparator in
+Eq.~\ref{eq:pcgrad-comparator} removes only genuinely negative interference; if
+it behaves like LeWM while cosine admission improves tagged planning, rare
+negative conflicts are insufficient to explain the gain.  Third,
+norm-matched scalar attenuation tests whether the result is merely a lower
+encoder-side prediction learning rate.  Fourth, soft admission sweeps the
+orthogonal residual floor and traces the trade-off between nuisance resistance
+and preservation of unknown dynamics.  Fifth, the component-span diagnostic
+tests whether the summed control gradient appears orthogonal because distinct
+horizon, inverse, cycle, and reachability gradients cancel.
+
+These interventions yield a falsifiable interpretation.  Evidence for
+directional control guidance requires cosine admission to outperform both
+norm-matched attenuation and a retention-matched shuffled guide.  Evidence
+that orthogonal information is sometimes necessary requires hard drop to hurt
+a clean dynamics task and soft admission to repair it.  Evidence that the
+watermark effect is not standard gradient-conflict resolution requires the
+conflict-only rule to fail to reproduce the tagged-task gain.  We report raw
+cosine and admitted-norm distributions alongside success rates so that a
+method cannot appear successful merely by silently suppressing most encoder
+learning.
+
 \subsection{Predeclared interpretation}
 
 Soft admission is considered successful only if one shared setting improves

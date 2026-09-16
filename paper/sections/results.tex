@@ -48,6 +48,7 @@ protocol at epoch 10.}
 \toprule
 Task & Condition & Schedule & LeWM & Cosine \shortmethod{} \\
 \midrule
+PushT   & clean  & full$^\dagger$ & --   & 0.74 \\
 TwoRooms & clean  & 10k  & 0.88 & 0.90 \\
 TwoRooms & tagged & 10k  & 0.60 & 0.98 \\
 Cube     & clean  & full & 0.70 & 0.76 \\
@@ -55,7 +56,21 @@ Cube     & tagged & full & 0.74 & 0.84 \\
 Reacher  & clean  & epoch 10 & 0.90 & 0.86 \\
 \bottomrule
 \end{tabular}
+\vspace{1mm}
+
+\footnotesize{$^\dagger$Seed-zero checkpoint at 134k updates, evaluated on
+50 episodes.  This provisional point is used to construct the experimental
+argument and will be replaced by the predeclared completed-run aggregation and
+multi-seed estimate.}
 \end{table}
+
+The provisional clean-PushT result is not a selected peak: success is $0.74$
+at 134k updates, while the best observed 50-episode point is $0.82$ at 72k.
+The means over the latest 10 and 20 evaluations are $0.678$ and $0.686$,
+respectively.  We therefore record $0.74$ as the current checkpoint result but
+use the late-window statistics to describe stability.  A matched clean LeWM
+run is still required before attributing the absolute clean-task level to the
+routing rule.
 
 TwoRooms and Cube do not reproduce the same catastrophic tagged-baseline
 collapse as PushT.  They remain useful as robustness checks, but cannot by
@@ -67,11 +82,38 @@ the planner still needs.
 
 A one-epoch diagnostic under the historical evaluator gives success $0.78$
 for LeWM, $0.70$ for cosine routing, and $0.82$ for both control-only and
-$\beta=0.75$ soft admission.  Each number is based on only 50 evaluation
-episodes and is therefore a screening signal, not a final result.  The full
-$\beta=0.75$ Reacher run and the paired tagged-PushT guardrail are in progress.
-Their joint outcome decides whether a residual prediction path repairs the
-failure or simply reintroduces the predictable shortcut.
+$\beta=0.75$ soft admission.  Full training does not confirm a soft-admission
+repair: at epoch 10, success is $0.90$ for LeWM, $0.86$ for cosine routing,
+and $0.82$ for $\beta=0.75$.  On tagged PushT, $\beta=0.75$ reaches final
+success $0.58$ and a last-ten mean of $0.596$, compared with $0.80$ and
+$0.774$ for cosine routing.  Thus this residual setting is Pareto-dominated by
+cosine routing in the completed seed-zero checkpoints.  More raw prediction
+access neither recovers Reacher nor preserves the full watermark benefit in
+this experiment.  These 50-episode estimates still require multi-seed and
+larger-evaluation confirmation, but they rule out promoting $\beta=0.75$ as
+the primary method on current evidence.
+
+\subsection{What orthogonality does and does not establish}
+
+The current evidence already rules out the strongest interpretation of our
+method: an orthogonal prediction gradient is not necessarily useless.  In
+Reacher, the cosine between prediction and control gradients is small and the
+zero-floor rule admits only a small fraction of the raw prediction update, yet
+planning continues to improve over long training.  This is consistent with
+high-dimensional geometry and with a guide that covers only part of the
+dynamics needed by the planner.  The method should therefore be understood as
+an encoder-allocation bias, not an estimator of the complete task-relevant
+subspace.
+
+The remaining experiments determine why that bias helps.  Conflict-only
+routing asks whether negative interference is sufficient; hard drop asks
+whether the orthogonal residual is dispensable; norm matching asks whether
+direction matters beyond attenuation; soft admission asks whether a finite
+prediction floor gives a better nuisance--dynamics trade-off; and the
+component-span analysis asks whether scalar cosine understates alignment to a
+multi-dimensional control signal.  Only their joint pattern can support the
+claim that action-derived direction contributes beyond generic gradient
+throttling.
 
 \subsection{Static but decision-causal goals}
 

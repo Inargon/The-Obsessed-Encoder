@@ -146,6 +146,8 @@ def write_summary(spec: runner.RunSpec, results_dir: str) -> None:
                         "fit/prediction_orthogonal_gate",
                         "fit/prediction_grad_retained_fraction",
                         "fit/prediction_reversed_fraction",
+                        "fit/prediction_parallel_norm_fraction",
+                        "fit/prediction_orthogonal_norm_fraction",
                         "eval/success_rate")
                 or key.startswith("pair/")
                 or key.startswith("fit/inverse_horizon_")
