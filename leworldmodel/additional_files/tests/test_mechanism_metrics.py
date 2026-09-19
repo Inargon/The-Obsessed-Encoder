@@ -1,0 +1,45 @@
+import importlib.util
+from pathlib import Path
+import unittest
+import numpy as np
+
+spec=importlib.util.spec_from_file_location('mechanism_metrics',Path(__file__).parents[1]/'mechanism_metrics.py')
+metrics=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(metrics)
+
+
+class TestMetrics(unittest.TestCase):
+    def test_identical_candidates(self):
+        costs=np.array([[1.,2.,3.]])
+        actions=np.array([[[0.,0.],[1.,0.],[0.,1.]]])
+        out=metrics.cost_changes(costs,costs,actions)
+        for k in ('cost_rmse','pair_order_reversal','selected_candidate_changed','selected_action_normalized_l2'):
+            self.assertEqual(out[k][0],0)
+
+    def test_reversal_and_selected_action(self):
+        costs=np.array([[1.,2.,3.]])
+        actions=np.array([[[0.,0.],[1.,0.],[0.,2.]]])
+        out=metrics.cost_changes(costs,-costs,actions)
+        self.assertEqual(out['pair_order_reversal'][0],1)
+        self.assertEqual(out['selected_action_normalized_l2'][0],2)
+
+    def test_constant_shift_changes_cost_not_choice(self):
+        out=metrics.cost_changes(np.array([[1.,2.]]),np.array([[6.,7.]]),np.zeros((1,2,2)))
+        self.assertEqual(out['cost_rmse'][0],5)
+        self.assertEqual(out['selected_candidate_changed'][0],0)
+
+    def test_ties_are_reported(self):
+        out=metrics.cost_changes(np.ones((1,3)),np.ones((1,3)),np.zeros((1,3,2)))
+        self.assertEqual(out['reference_cost_degenerate'][0],1)
+        self.assertEqual(out['comparable_pair_fraction'][0],0)
+
+    def test_shape_and_nan_rejected(self):
+        with self.assertRaises(ValueError):
+            metrics.cost_changes(np.ones((1,3)),np.ones((2,3)),np.zeros((1,3,2)))
+        with self.assertRaises(ValueError): metrics.summarize([float('nan')])
+
+    def test_bootstrap_constant(self):
+        self.assertEqual(metrics.summarize([.4,.4,.4])['bootstrap_clip_ci95'],[.4000000000000001]*2)
+
+
+if __name__=='__main__': unittest.main()
