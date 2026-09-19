@@ -17,7 +17,13 @@ import torch
 class PixelTag:
     """Draws and stamps the corner tag color for a clip of frames."""
 
-    def __init__(self, mode: str, size: int, seed: int = 0):
+    def __init__(
+        self,
+        mode: str,
+        size: int,
+        seed: int = 0,
+        counterfactual_key: str | None = None,
+    ):
         if mode not in ("video", "frame"):
             raise ValueError(f"pixel_tag mode must be 'video' or 'frame', got {mode!r}")
         if size < 1:
@@ -25,11 +31,19 @@ class PixelTag:
         self.mode = mode
         self.size = size
         self.seed = seed
+        self.counterfactual_key = counterfactual_key
 
-    def _color(self, *key: int) -> torch.Tensor:
+    def _color(self, *key: int, counterfactual: bool = False) -> torch.Tensor:
         # SeedSequence turns the key tuple into an independent stream, so
         # distinct keys give decorrelated colors with no shared state
-        rng = np.random.default_rng(np.random.SeedSequence([self.seed, *key]))
+        # Preserve the exact historical color stream for the reference view;
+        # only the opt-in counterfactual view receives an extra branch key.
+        entropy = (
+            [self.seed, 0xC0FFEE, *key]
+            if counterfactual
+            else [self.seed, *key]
+        )
+        rng = np.random.default_rng(np.random.SeedSequence(entropy))
         return torch.from_numpy(rng.integers(0, 256, size=3, dtype=np.uint8))
 
     def color_for(self, ep_idx: int, step: int | None = None) -> np.ndarray:
@@ -43,7 +57,15 @@ class PixelTag:
             key = (int(ep_idx), int(step))
         return self._color(*key).numpy()
 
-    def stamp(self, pixels: torch.Tensor, ep_idx: int, start: int, frameskip: int) -> None:
+    def stamp(
+        self,
+        pixels: torch.Tensor,
+        ep_idx: int,
+        start: int,
+        frameskip: int,
+        *,
+        counterfactual: bool = False,
+    ) -> None:
         """Stamp a (T, C, H, W) uint8 clip in-place; start/frameskip give each
         frame's episode-local step so frame-mode colors are stable per frame."""
         n = self.size
@@ -52,11 +74,31 @@ class PixelTag:
                 f"pixel_tag size {n} exceeds frame size {tuple(pixels.shape[-2:])}"
             )
         if self.mode == "video":
-            pixels[:, :, :n, :n] = self._color(int(ep_idx)).view(3, 1, 1)
+            pixels[:, :, :n, :n] = self._color(
+                int(ep_idx), counterfactual=counterfactual
+            ).view(3, 1, 1)
         else:
             for t in range(pixels.shape[0]):
                 step = start + t * frameskip
-                pixels[t, :, :n, :n] = self._color(int(ep_idx), int(step)).view(3, 1, 1)
+                pixels[t, :, :n, :n] = self._color(
+                    int(ep_idx), int(step), counterfactual=counterfactual
+                ).view(3, 1, 1)
+
+    def attach_counterfactual(
+        self, steps: dict, ep_idx: int, start: int, frameskip: int
+    ) -> None:
+        """Attach a view with identical content and an independently keyed tag."""
+        if not self.counterfactual_key or "pixels" not in steps:
+            return
+        changed = steps["pixels"].clone()
+        self.stamp(
+            changed,
+            ep_idx,
+            start,
+            frameskip,
+            counterfactual=True,
+        )
+        steps[self.counterfactual_key] = changed
 
 
 class PixelTagLanceDataset(swm.data.LanceDataset):
@@ -75,6 +117,9 @@ class PixelTagLanceDataset(swm.data.LanceDataset):
         if "pixels" in steps:
             start = int(g_start - self.offsets[int(ep_idx)])
             self.pixel_tag.stamp(steps["pixels"], int(ep_idx), start, self.frameskip)
+            self.pixel_tag.attach_counterfactual(
+                steps, int(ep_idx), start, self.frameskip
+            )
         return steps
 
 
@@ -99,6 +144,9 @@ if hasattr(swm.data, "HDF5Dataset"):
                 self.transform = user_transform
             if "pixels" in steps:
                 self.pixel_tag.stamp(steps["pixels"], ep_idx, start, self.frameskip)
+                self.pixel_tag.attach_counterfactual(
+                    steps, ep_idx, start, self.frameskip
+                )
             return user_transform(steps) if user_transform else steps
 
     _TAGGED[swm.data.HDF5Dataset] = PixelTagHDF5Dataset
@@ -127,4 +175,5 @@ def tag_from_cfg(tag_cfg, default_seed: int) -> PixelTag:
         mode=tag_cfg.get("mode", "video"),
         size=int(tag_cfg.get("size", 5)),
         seed=int(tag_cfg.get("seed", default_seed)),
+        counterfactual_key=tag_cfg.get("counterfactual_key"),
     )

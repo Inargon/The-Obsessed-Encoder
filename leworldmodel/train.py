@@ -22,6 +22,9 @@ from additional_files.aligned_gradient_routing import control_aligned_prediction
 from additional_files.component_gradient_diagnostics import (
     measure_component_gradient_geometry,
 )
+from additional_files.counterfactual_planning import (
+    counterfactual_planning_objective,
+)
 from additional_files.pixel_tag import attach_pixel_tag, tag_from_cfg
 # <<< obsessed-encoder
 
@@ -56,6 +59,51 @@ def lejepa_forward(self, batch, stage, cfg):
     # upstream configs, this remains exactly 1.0.
     pred_weight = float(cfg.loss.get("pred_weight", 1.0))
     output["loss"] = pred_weight * output["pred_loss"] + lambd * output["sigreg_loss"]
+
+    # Routing-independent future-work arm.  The second view is constructed in
+    # native uint8 space by PixelTag and passed through the exact same image
+    # preprocessing.  Another sample's observed action supplies the negative;
+    # no simulator state or control-gradient projection is used.
+    counterfactual_cfg = cfg.loss.get("counterfactual_planning")
+    counterfactual_enabled = counterfactual_cfg and counterfactual_cfg.get(
+        "enabled", True
+    )
+    if counterfactual_enabled:
+        if "pixels_counterfactual" not in batch:
+            raise ValueError(
+                "counterfactual planning requires pixel_tag.counterfactual_key"
+            )
+        if emb.size(0) < 2:
+            raise ValueError("counterfactual planning requires batch_size >= 2")
+        changed = self.model.encode(
+            {
+                "pixels": batch["pixels_counterfactual"],
+                "action": batch["action"],
+            }
+        )
+        changed_emb = changed["emb"]
+        changed_ctx = changed_emb[:, :ctx_len]
+        changed_target = changed_emb[:, n_preds:]
+        changed_pred = self.model.predict(changed_ctx, changed["act_emb"][:, :ctx_len])
+
+        negative_actions = ctx_act.roll(1, dims=0)
+        reference_negative_pred = self.model.predict(ctx_emb, negative_actions)
+        changed_negative_pred = self.model.predict(changed_ctx, negative_actions)
+        objective_kwargs = OmegaConf.to_container(counterfactual_cfg, resolve=True)
+        objective_kwargs.pop("enabled", None)
+        counterfactual = counterfactual_planning_objective(
+            reference_emb=emb,
+            changed_emb=changed_emb,
+            reference_pred=pred_emb,
+            changed_pred=changed_pred,
+            reference_negative_pred=reference_negative_pred,
+            changed_negative_pred=changed_negative_pred,
+            reference_target=tgt_emb,
+            changed_target=changed_target,
+            **objective_kwargs,
+        )
+        output.update(counterfactual)
+        output["loss"] = output["loss"] + output["counterfactual_planning_loss"]
 
     # Opt-in capacity-allocation experiment. The published arms have no
     # ``loss.allocation`` block and therefore retain the exact upstream loss.
@@ -140,6 +188,7 @@ def lejepa_forward(self, batch, stage, cfg):
             "prediction_norm_match_error",
             "prediction_direction_cosine_to_aligned",
         }
+        or k.startswith("counterfactual_")
         or k.startswith("component_grad/")
     }
     self.log_dict(metrics_dict, on_step=True, sync_dist=True)
@@ -170,6 +219,20 @@ def run(cfg):
         dataset = attach_pixel_tag(dataset, tag_from_cfg(tag_cfg, cfg.seed))
     # <<< obsessed-encoder
     transforms = [get_img_preprocessor(source='pixels', target='pixels', img_size=cfg.img_size)]
+    counterfactual_cfg = cfg.loss.get("counterfactual_planning")
+    if counterfactual_cfg and counterfactual_cfg.get("enabled", True):
+        if not tag_cfg or tag_cfg.get("counterfactual_key") != "pixels_counterfactual":
+            raise ValueError(
+                "counterfactual planning requires "
+                "pixel_tag.counterfactual_key=pixels_counterfactual"
+            )
+        transforms.append(
+            get_img_preprocessor(
+                source="pixels_counterfactual",
+                target="pixels_counterfactual",
+                img_size=cfg.img_size,
+            )
+        )
     
     with open_dict(cfg):
         for col in cfg.data.dataset.keys_to_load:
