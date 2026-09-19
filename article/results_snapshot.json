@@ -1,0 +1,113 @@
+{
+  "snapshot_date": "2026-09-19",
+  "task": "PushT",
+  "condition": "episode-constant 5x5 RGB tag",
+  "training_seed": 0,
+  "checkpoint": "weights_epoch_10.pt",
+  "planning_evaluation": {
+    "dataset": "pusht_expert_train.h5",
+    "num_episodes": 50,
+    "evaluation_seed": 0,
+    "paired_episode_set": true,
+    "success_rate": {
+      "jepa": 0.04,
+      "full": 0.86,
+      "parallel_only": 0.82,
+      "gated_orthogonal": 0.92
+    },
+    "paired_exact_test_against_full": {
+      "jepa": {
+        "full_only_successes": 41,
+        "other_only_successes": 0,
+        "discordant_episodes": 41,
+        "p_value": 9.094947017729282e-13
+      },
+      "parallel_only": {
+        "full_only_successes": 7,
+        "other_only_successes": 5,
+        "discordant_episodes": 12,
+        "p_value": 0.7744
+      },
+      "gated_orthogonal": {
+        "full_only_successes": 3,
+        "other_only_successes": 6,
+        "discordant_episodes": 9,
+        "p_value": 0.5078
+      }
+    }
+  },
+  "frozen_linear_probe": {
+    "dataset": "pusht_expert_train.h5 with the matched episode tag attached",
+    "num_clips": 1024,
+    "frames_per_clip": 4,
+    "frameskip": 5,
+    "split": "80/20 by sampled clip",
+    "probe_split_seeds": [17, 73, 137],
+    "ridge_alpha": 1.0,
+    "note": "The three seeds vary only the probe data split, not model training.",
+    "backbone": {
+      "jepa": {
+        "pusher_xy_r2": [0.3802, 0.0304],
+        "block_xy_r2": [0.6165, 0.0127],
+        "block_angle_sincos_r2": [-0.0572, 0.0524],
+        "tag_rgb_r2": [0.9801, 0.0020],
+        "physical_mean_r2": 0.3132,
+        "physical_minus_tag": -0.6669
+      },
+      "full": {
+        "pusher_xy_r2": [0.9957, 0.0006],
+        "block_xy_r2": [0.9648, 0.0047],
+        "block_angle_sincos_r2": [0.8617, 0.0143],
+        "tag_rgb_r2": [0.6036, 0.0635],
+        "physical_mean_r2": 0.9407,
+        "physical_minus_tag": 0.3371
+      },
+      "parallel_only": {
+        "pusher_xy_r2": [0.9946, 0.0006],
+        "block_xy_r2": [0.9501, 0.0033],
+        "block_angle_sincos_r2": [0.8317, 0.0263],
+        "tag_rgb_r2": [0.8623, 0.0032],
+        "physical_mean_r2": 0.9255,
+        "physical_minus_tag": 0.0631
+      },
+      "gated_orthogonal": {
+        "pusher_xy_r2": [0.9952, 0.0006],
+        "block_xy_r2": [0.9641, 0.0025],
+        "block_angle_sincos_r2": [0.8737, 0.0062],
+        "tag_rgb_r2": [0.8330, 0.0049],
+        "physical_mean_r2": 0.9443,
+        "physical_minus_tag": 0.1114
+      }
+    },
+    "projection": {
+      "jepa": {
+        "physical_mean_r2": 0.1028,
+        "tag_rgb_r2": [0.9508, 0.0046],
+        "physical_minus_tag": -0.8480
+      },
+      "full": {
+        "physical_mean_r2": 0.9115,
+        "tag_rgb_r2": [0.5930, 0.0511],
+        "physical_minus_tag": 0.3185
+      },
+      "parallel_only": {
+        "physical_mean_r2": 0.8888,
+        "tag_rgb_r2": [0.8307, 0.0051],
+        "physical_minus_tag": 0.0581
+      },
+      "gated_orthogonal": {
+        "physical_mean_r2": 0.9236,
+        "tag_rgb_r2": [0.8148, 0.0061],
+        "physical_minus_tag": 0.1088
+      }
+    }
+  },
+  "gradient_geometry_10k": {
+    "full_true_cosine_mean": 0.1138,
+    "full_shuffled_control_cosine_mean": -0.0010,
+    "full_true_minus_shuffled_mean": 0.1148,
+    "full_orthogonal_norm_fraction_mean": 0.9906,
+    "warning": "Cosine and orthogonal-norm measurements are valid. Recompute the routed retained-fraction metric after matching the audit formula to training."
+  }
+}
+
