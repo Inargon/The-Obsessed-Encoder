@@ -9,6 +9,27 @@ spec.loader.exec_module(metrics)
 
 
 class TestMetrics(unittest.TestCase):
+    def test_normalize_frameskip_five_native_two(self):
+        raw = np.arange(80, dtype=float).reshape(8, 10)
+        mean, std = np.array([1., 3.]), np.array([2., 4.])
+        seen = []
+        def normalizer(sample):
+            seen.append(sample["action"].shape)
+            return {"action": (sample["action"] - mean) / std}
+        actual = metrics.normalize_action_blocks(raw, normalizer, 2)
+        self.assertEqual(seen, [(40, 2)])
+        self.assertEqual(actual.shape, (8, 10))
+        np.testing.assert_allclose(actual, (raw - np.tile(mean, 5)) / np.tile(std, 5))
+
+    def test_normalize_unpacked_actions(self):
+        raw = np.arange(8, dtype=float).reshape(4, 2)
+        actual = metrics.normalize_action_blocks(raw, lambda d: {"action": d["action"] + 1}, 2)
+        np.testing.assert_array_equal(actual, raw + 1)
+
+    def test_invalid_packed_action_width(self):
+        with self.assertRaises(ValueError):
+            metrics.normalize_action_blocks(np.ones((4, 5)), lambda d: d, 2)
+
     def test_identical_candidates(self):
         costs=np.array([[1.,2.,3.]])
         actions=np.array([[[0.,0.],[1.,0.],[0.,1.]]])

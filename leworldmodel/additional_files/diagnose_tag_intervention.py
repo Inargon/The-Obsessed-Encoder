@@ -33,7 +33,7 @@ def main():
     import stable_worldmodel as swm
     from additional_files.evaluate_reacher_checkpoint import load_inference_model
     from additional_files.diagnose_frozen_representation import parse_checkpoint
-    from additional_files.mechanism_metrics import summarize, cost_changes
+    from additional_files.mechanism_metrics import summarize, cost_changes, normalize_action_blocks
     from utils import get_img_preprocessor, get_column_normalizer
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -43,6 +43,7 @@ def main():
         num_steps=args.history+args.horizon, frameskip=args.frameskip, keys_to_cache=['action'])
     dataset.transform = None
     normalizer = get_column_normalizer(dataset, 'action', 'action')
+    native_action_dim = int(dataset.get_dim('action'))
     preprocess = get_img_preprocessor('pixels','pixels',img_size=224)
     ids = rng.choice(len(dataset), min(args.num_clips,len(dataset)), replace=False)
     if len(ids)<2:
@@ -59,7 +60,7 @@ def main():
         act = torch.as_tensor(sample['action']).clone()
         if not torch.isfinite(act).all():
             raise ValueError('Nonfinite action clip; verify dataset boundary handling')
-        act = normalizer({'action':act})['action']
+        act = normalize_action_blocks(act, normalizer, native_action_dim)
         actions.append(act.reshape(args.history+args.horizon, -1))
     actions = torch.stack(actions)
     colors = torch.as_tensor(rng.integers(0,256,(len(ids),2,3)),dtype=torch.uint8)

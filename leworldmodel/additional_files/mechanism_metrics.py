@@ -2,6 +2,22 @@
 import numpy as np
 
 
+def normalize_action_blocks(actions, normalizer, action_dim):
+    """Normalize native actions before restoring their frameskip-packed shape.
+
+    Works with tensors or arrays; the supplied training transform owns dtype
+    and statistics. Packing order is unchanged.
+    """
+    shape = actions.shape
+    if len(shape) < 2 or action_dim < 1 or shape[-1] % action_dim:
+        raise ValueError("Packed action width must be a multiple of native action_dim")
+    unpacked = actions.reshape(-1, action_dim)
+    normalized = normalizer({"action": unpacked})["action"]
+    if normalized.shape != unpacked.shape:
+        raise ValueError("Action normalizer unexpectedly changed shape")
+    return normalized.reshape(shape)
+
+
 def summarize(values, seed=0, repeats=1000):
     x = np.asarray(values, dtype=float).reshape(-1)
     if not len(x) or not np.isfinite(x).all():
