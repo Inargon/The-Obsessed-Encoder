@@ -59,9 +59,23 @@ That distinction suggests an asymmetric intervention:
 > prediction gradient entering the encoder as a proposal.
 
 We obtain a relevance signal from a control objective trained only from
-images, actions, and trajectories. It combines short-horizon inverse action
-prediction, action-cycle consistency, and reachability. It does not use
-simulator state.
+images, actions, and trajectories. It combines multi-horizon inverse action
+prediction, action-cycle consistency, and action-conditioned reachability:
+
+\[
+\mathcal L_c
+=\mathcal L_{\mathrm{inverse}}
++0.5\mathcal L_{\mathrm{cycle}}
++0.1\mathcal L_{\mathrm{reach}}.
+\]
+
+The inverse target is the action sequence over horizons one through three,
+rather than simulator state. Cycle consistency asks whether predicted latent
+change still exposes the action that produced it. Reachability contrasts
+compatible transitions against alternatives, and shuffled-action diagnostics
+check that the auxiliary task actually consumes its action input. Random
+latent masking discourages the head from relying on one fixed coordinate
+subset. None of these signals uses privileged physical state.
 
 At the shared representation, define
 
@@ -157,7 +171,9 @@ comes from three held-out clip splits; all models currently use training seed
 zero.
 
 The control-guided variants all recover task state and control performance.
-But only the full route substantially reduces tag decodability.
+Full routing produces the lowest *linear tag decodability* among these three
+checkpoints. As the next experiment shows, however, decodability and causal
+decision use are not the same property.
 
 The 92% success of gated orthogonal prediction deserves care. This variant is
 not a “pure orthogonal gradient” method. It keeps the full control update and
@@ -178,45 +194,102 @@ difference is only three episodes and is not statistically significant
 (exact \(p=0.508\)). In contrast, Full beats JEPA on 41 paired episodes while
 losing none (exact \(p\approx9.1\times10^{-13}\)).
 
-The distinction matters. Gated orthogonal prediction largely solves control
-**despite** the shortcut. Full routing makes the representation itself more
-selective: it retains comparable physical state while reducing tag \(R^2\)
-from \(0.83\) to \(0.60\).
+The distinction matters. Gated orthogonal prediction leaves tag colour
+linearly accessible, but that fact alone does not tell us whether the planner
+uses it. Full routing makes the representation more selective in the linear
+probe: it retains comparable physical state while reducing tag \(R^2\) from
+\(0.83\) to \(0.60\). We therefore need an intervention, not another probe, to
+connect representation content to decisions.
 
 <!-- FIGURE 3: Three grouped bars per model: success, physical R2, tag R2.
 Use a separate axis/panel for success rather than implying identical units. -->
 
+## Does the planner actually use the tag?
+
+We freeze each epoch-ten checkpoint and intervene on the native uint8 pixels
+before applying the exact training image preprocessing. For every sampled
+clip, physical content and a fixed bank of 32 observed action sequences remain
+unchanged. We compare four conditions: the original clip, both context and
+goal retagged, context retagged alone, and goal retagged alone. This is an
+offline fixed-candidate diagnostic, not an additional closed-loop success
+test.
+
+At the backbone, the ratio between tag-intervention MSE and
+content-intervention MSE is
+
+\[
+12.27\ \text{(JEPA)},\quad
+0.199\ \text{(Full)},\quad
+0.060\ \text{(Parallel)},\quad
+0.161\ \text{(GatedOrth)}.
+\]
+
+The standard JEPA is more sensitive to changing five corner pixels than to
+changing the physical scene. Every control-guided checkpoint reverses that
+ordering.
+
+The effect reaches the planner. Changing only the context tag changes JEPA's
+selected candidate on \(89.6\%\) of clips; changing only the goal tag changes
+it on \(88.8\%\). The corresponding rates are \(26.6\%/26.6\%\) for Full,
+\(16.7\%/10.4\%\) for Parallel, and \(23.4\%/22.1\%\) for GatedOrth. Pairwise
+candidate-order reversals show the same pattern.
+
+The common-mode control is particularly revealing. Retagging context and goal
+together perturbs JEPA's raw candidate costs by roughly \(4.4\), while a
+one-sided retagging perturbs them by roughly \(365\). The reference candidate
+costs are non-degenerate in every measured clip. JEPA has therefore not merely
+become sensitive to colour; it has learned to use tag correspondence between
+context and goal.
+
+The intervention also changes how we read the component ablation. Parallel
+has the lowest causal tag sensitivity even though its linear tag \(R^2\) is
+high. GatedOrth likewise preserves linearly decodable tag information while
+making decisions far more robust to it. Linear accessibility, optimization
+alignment, and causal decision use are three distinct properties.
+
+<!-- FIGURE 4: Native-pixel intervention design, tag/content sensitivity ratio,
+and selected-candidate change under common-mode versus one-sided retagging. -->
+
 ## What the experiment establishes
 
-The result supports a four-link mechanism:
+The combined evidence supports a five-link mechanism:
 
 \[
 \text{predictable nuisance}
 \rightarrow
 \text{representation capture}
 \rightarrow
-\text{loss of physical geometry}
+\text{candidate-cost distortion}
+\rightarrow
+\text{action-ranking changes}
 \rightarrow
 \text{planning failure}.
 \]
 
 Control-guided encoder optimization reverses the middle of this chain. The
 standard JEPA allocates nearly perfect linear access to the tag and weak access
-to physical state. Full routing restores physical state, reduces tag access,
-and changes control success from 4% to 86%.
+to physical state. A one-sided tag intervention then overwhelms its natural
+variation across candidate actions and changes the selected action in almost
+nine out of ten clips. Full routing restores physical state, reduces linear
+tag access, reduces intervention sensitivity, and changes closed-loop control
+success from 4% to 86%.
 
-The component ablations sharpen the conclusion. Control supervision is enough
-to recover much of the physical state. Routing determines whether the model
-also continues to devote substantial capacity to the nuisance. Task success
-alone would hide this difference.
+The component ablations sharpen the conclusion. Every tested control-guided
+update recovers substantial physical-state information, but different routes
+trade off linear tag accessibility and behavioral tag sensitivity. Existing
+success rates do not establish that Full is uniquely optimal, or that either
+prediction component is individually necessary. Task success alone would
+hide these distinctions.
 
 ## What it does not establish
 
 Several boundaries are important.
 
 **Linear decodability is not causal use.** A lower tag \(R^2\) shows that the
-nuisance is less linearly exposed; it does not prove that all tag information
-has disappeared or that CEM never uses it.
+nuisance is less linearly exposed. The intervention measures behavior under a
+specific five-pixel perturbation and fixed candidate bank; it still does not
+prove that all tag information has disappeared or that every closed-loop CEM
+trajectory is invariant.
 
 **A control gradient is not a semantic oracle.** A short-horizon action loss
 can miss static goals and long-horizon consequences. Orthogonal information
@@ -233,10 +306,20 @@ here is the failure mode, the asymmetric predictor/encoder interface, and the
 matched evidence connecting optimization geometry to a planner-facing
 representation.
 
-The next decisive controls are joint training without routing,
-control-only encoder training, and additional training seeds. They will
-separate the contribution of control supervision from the contribution of
-gradient admission itself.
+The next decisive controls are already running: matched joint training without
+routing and a norm-matched scalar route. Joint isolates the contribution of
+the auxiliary supervision; scalar preserves the routed prediction-gradient
+norm while leaving its original direction unchanged. Their common final
+checkpoint evaluation will distinguish supervision, attenuation, and
+directional selection. Publication-level evidence still requires independent
+training seeds and a clean-task safety check.
+
+As a deliberately routing-independent future-work baseline, we also train a
+model with native-pixel tag invariance, a true-versus-shuffled action margin,
+and action-ranking consistency across the two views. Its intermediate control
+performance is substantially below the routed models. We treat this only as a
+developing negative result: nuisance invariance and local action
+discrimination may be insufficient to organize a representation for planning.
 
 ## The broader lesson
 
@@ -268,6 +351,9 @@ optimization budget an empirical question.
 - Planning: the same 50 tagged episodes and evaluation seed for every model.
 - Probes: frozen encoders, ridge regression, 1,024 sampled clips, four frames
   per clip, 80/20 clip-level split, split seeds 17/73/137.
+- Counterfactual diagnostic: frozen epoch-ten checkpoints, 128 sampled clips
+  and 32 observed action candidates per clip, sampling seeds 17/73/137. These
+  seeds vary sampled clips, not model training.
 - Exact values and provenance are stored in `results_snapshot.json`.
 
 ### Context

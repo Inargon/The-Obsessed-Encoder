@@ -1,5 +1,5 @@
 {
-  "snapshot_date": "2026-09-19",
+  "snapshot_date": "2026-09-20",
   "task": "PushT",
   "condition": "episode-constant 5x5 RGB tag",
   "training_seed": 0,
@@ -100,6 +100,92 @@
         "tag_rgb_r2": [0.8148, 0.0061],
         "physical_minus_tag": 0.1088
       }
+    }
+  },
+  "counterfactual_tag_intervention": {
+    "checkpoint": "weights_epoch_10.pt",
+    "num_clips_per_sampling_seed": 128,
+    "num_action_candidates": 32,
+    "sampling_seeds": [17, 73, 137],
+    "note": "Frozen native-uint8 pixel intervention before exact training preprocessing. Physical content and candidate actions are fixed. Sampling seeds are not training seeds; this is not closed-loop SR.",
+    "backbone_tag_over_content_mse": {
+      "jepa": [12.2706, 2.0881],
+      "full": [0.1991, 0.0035],
+      "parallel_only": [0.0602, 0.0033],
+      "gated_orthogonal": [0.1609, 0.0040]
+    },
+    "projection_tag_over_content_mse": {
+      "jepa": [5.8116, 0.7295],
+      "full": [0.4305, 0.0151],
+      "parallel_only": [0.1622, 0.0092],
+      "gated_orthogonal": [0.3667, 0.0138]
+    },
+    "selected_candidate_changed": {
+      "both_tags": {
+        "jepa": [0.6224, 0.0045],
+        "full": [0.1458, 0.0316],
+        "parallel_only": [0.1432, 0.0274],
+        "gated_orthogonal": [0.1172, 0.0358]
+      },
+      "context_tag": {
+        "jepa": [0.8958, 0.0239],
+        "full": [0.2656, 0.0282],
+        "parallel_only": [0.1667, 0.0251],
+        "gated_orthogonal": [0.2344, 0.0078]
+      },
+      "goal_tag": {
+        "jepa": [0.8880, 0.0477],
+        "full": [0.2656, 0.0234],
+        "parallel_only": [0.1042, 0.0197],
+        "gated_orthogonal": [0.2214, 0.0369]
+      }
+    },
+    "pair_order_reversal": {
+      "both_tags": {
+        "jepa": [0.1024, 0.0151],
+        "full": [0.0379, 0.0017],
+        "parallel_only": [0.0398, 0.0030],
+        "gated_orthogonal": [0.0419, 0.0006]
+      },
+      "context_tag": {
+        "jepa": [0.4086, 0.0157],
+        "full": [0.0900, 0.0062],
+        "parallel_only": [0.0503, 0.0022],
+        "gated_orthogonal": [0.0842, 0.0024]
+      },
+      "goal_tag": {
+        "jepa": [0.4084, 0.0245],
+        "full": [0.0860, 0.0044],
+        "parallel_only": [0.0414, 0.0008],
+        "gated_orthogonal": [0.0781, 0.0043]
+      }
+    },
+    "cost_rmse_over_reference_std": {
+      "both_tags": {
+        "jepa": [0.6065, 0.0530],
+        "full": [0.1775, 0.0063],
+        "parallel_only": [0.1814, 0.0069],
+        "gated_orthogonal": [0.1868, 0.0179]
+      },
+      "context_tag": {
+        "jepa": [77.0464, 10.7384],
+        "full": [1.6567, 0.0930],
+        "parallel_only": [0.8025, 0.0337],
+        "gated_orthogonal": [1.3992, 0.0521]
+      },
+      "goal_tag": {
+        "jepa": [76.9732, 10.8830],
+        "full": [1.6490, 0.1009],
+        "parallel_only": [0.8003, 0.0247],
+        "gated_orthogonal": [1.3921, 0.0503]
+      }
+    },
+    "raw_cost_sanity_check": {
+      "reference_cost_degenerate_fraction": 0.0,
+      "jepa_reference_cost_std_mean": 8.3472,
+      "jepa_both_tags_cost_rmse_mean": 4.3606,
+      "jepa_context_tag_cost_rmse_mean": 365.3523,
+      "jepa_goal_tag_cost_rmse_mean": 364.6217
     }
   },
   "gradient_geometry_10k": {
