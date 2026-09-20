@@ -15,3 +15,5 @@ Exact numbers and protocol notes are recorded in
 [`results_snapshot.json`](results_snapshot.json). Before publishing, replace
 the figure callouts with exported assets and add author names.
 
+The exact control-objective definition, design motivation, and claim boundaries
+are documented separately in [`lctrl-design.md`](lctrl-design.md).
