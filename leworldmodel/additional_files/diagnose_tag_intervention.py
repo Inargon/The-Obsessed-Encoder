@@ -1,7 +1,9 @@
-"""Frozen native-pixel tag interventions and fixed-candidate model costs.
+"""Frozen nuisance/relevance interventions and fixed-candidate model costs.
 
 No privileged states, optimization, or environment rollout. Candidate selection
 is an offline diagnostic, not CEM replanning or a success-rate measurement.
+Tag changes are the nuisance intervention; scene and action-sequence changes
+are positive controls for task-relevant sensitivity.
 """
 import argparse
 import hashlib
@@ -104,6 +106,11 @@ def main():
         bootstrap='clip resampling conditional on frozen checkpoint; not training-seed uncertainty',
         tag_stage='native uint8 before exact training image preprocessing',
         action_units='dataset z-score normalized; candidates from observed action blocks',
+        interventions={
+            'tag':'change a 5x5 RGB tag while holding scene and candidates fixed',
+            'scene':'replace context or goal frames with another sampled clip while holding tag and candidates fixed',
+            'action_sequence':'cyclically shift future action blocks within each candidate while holding context and goal fixed',
+        },
         indices=ids.tolist(), candidate_source_indices=ids[bank_ids].tolist(),
         colors=colors.tolist(), device=str(device)), 'runs':{}}
 
@@ -142,16 +149,51 @@ def main():
                 plans[:,:args.history-1]=actions[i,:args.history-1]
                 plans=plans.unsqueeze(0).to(device)
                 costs={}
-                for condition, ctx, goal in [('reference',own,own),('both_tags',changed,changed),
-                                             ('context_tag',changed,own),('goal_tag',own,changed)]:
+                for condition, ctx, goal in [
+                    ('reference', own, own),
+                    ('both_tags', changed, changed),
+                    ('context_tag', changed, own),
+                    ('goal_tag', own, changed),
+                    ('context_scene', other, own),
+                    ('goal_scene', own, other),
+                ]:
                     count=args.candidates
                     info={'pixels':ctx[:args.history][None,None].expand(1,count,-1,-1,-1,-1),
                           'goal':goal[-1:][None,None].expand(1,count,-1,-1,-1,-1),
                           'action':plans}
                     costs[condition]=model.get_cost(info,plans.clone()).cpu().numpy()
+
+                # Change the future action order while holding context, goal,
+                # action magnitudes, and the candidate bank fixed. This is a
+                # positive control for action-conditioned cost sensitivity.
+                action_plans=plans.clone()
+                future_start=args.history-1
+                future=action_plans[:,:,future_start:].clone()
+                if future.shape[2] < 2:
+                    raise ValueError('Action intervention needs at least two future blocks')
+                action_plans[:,:,future_start:]=future.roll(shifts=1,dims=2)
+                count=args.candidates
+                action_info={
+                    'pixels':own[:args.history][None,None].expand(1,count,-1,-1,-1,-1),
+                    'goal':own[-1:][None,None].expand(1,count,-1,-1,-1,-1),
+                    'action':action_plans,
+                }
+                costs['action_sequence']=model.get_cost(
+                    action_info, action_plans.clone()
+                ).cpu().numpy()
                 first=plans[:,:,args.history-1].cpu().numpy()
-                for condition in ('both_tags','context_tag','goal_tag'):
-                    for key, value in cost_changes(costs['reference'],costs[condition],first).items():
+                changed_first=action_plans[:,:,args.history-1].cpu().numpy()
+                for condition in (
+                    'both_tags', 'context_tag', 'goal_tag',
+                    'context_scene', 'goal_scene', 'action_sequence',
+                ):
+                    action_argument = (
+                        changed_first if condition == 'action_sequence' else None
+                    )
+                    for key, value in cost_changes(
+                        costs['reference'], costs[condition], first,
+                        changed_first_actions=action_argument,
+                    ).items():
                         add(condition+'/'+key,value[0])
                 if (i+1)%16==0:
                     print(f'{label}: {i+1}/{len(ids)}',flush=True)

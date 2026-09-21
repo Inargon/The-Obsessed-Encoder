@@ -28,13 +28,25 @@ def summarize(values, seed=0, repeats=1000):
                 bootstrap_clip_ci95=np.quantile(means, [.025, .975]).tolist())
 
 
-def cost_changes(reference, changed, first_actions):
+def cost_changes(reference, changed, first_actions, changed_first_actions=None):
     """Per-clip candidate-cost and selection changes. Not closed-loop SR."""
     a, b = np.asarray(reference), np.asarray(changed)
     actions = np.asarray(first_actions)
+    changed_actions = (
+        actions
+        if changed_first_actions is None
+        else np.asarray(changed_first_actions)
+    )
     if a.shape != b.shape or a.ndim != 2 or a.shape[1] < 2:
         raise ValueError("Costs must be matched (clips, candidates), candidates >= 2")
-    if actions.shape[:2] != a.shape or not all(np.isfinite(x).all() for x in (a,b,actions)):
+    if (
+        actions.shape[:2] != a.shape
+        or changed_actions.shape != actions.shape
+        or not all(
+            np.isfinite(x).all()
+            for x in (a, b, actions, changed_actions)
+        )
+    ):
         raise ValueError("Mismatched or nonfinite candidate arrays")
     left, right = np.triu_indices(a.shape[1], 1)
     da, db = a[:, left]-a[:, right], b[:, left]-b[:, right]
@@ -52,5 +64,7 @@ def cost_changes(reference, changed, first_actions):
         "pair_order_reversal": flips,
         "comparable_pair_fraction": denom / len(left),
         "selected_candidate_changed": (ia != ib).astype(float),
-        "selected_action_normalized_l2": np.linalg.norm(actions[rows, ia]-actions[rows, ib], axis=-1),
+        "selected_action_normalized_l2": np.linalg.norm(
+            actions[rows, ia] - changed_actions[rows, ib], axis=-1
+        ),
     }
