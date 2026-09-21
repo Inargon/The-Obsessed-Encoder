@@ -10,6 +10,31 @@ import os
 from pathlib import Path
 
 
+def choose_finite_action_indices(dataset, order, requested):
+    """Choose clips whose complete action window is finite.
+
+    Sequence datasets retain rows near episode boundaries and represent the
+    unavailable tail actions with NaNs.  Those rows are valid for some
+    training losses after masking, but not for this fixed-candidate planning
+    diagnostic, which compares complete action plans.
+    """
+    import torch
+
+    selected = []
+    for index in order:
+        action = torch.as_tensor(dataset[int(index)]["action"])
+        if torch.isfinite(action).all():
+            selected.append(int(index))
+            if len(selected) == requested:
+                break
+    if len(selected) < requested:
+        raise ValueError(
+            f"Requested {requested} finite-action clips but found "
+            f"only {len(selected)}"
+        )
+    return selected
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--checkpoint', action='append', required=True, help='LABEL=RUN/FILE.pt')
@@ -45,7 +70,13 @@ def main():
     normalizer = get_column_normalizer(dataset, 'action', 'action')
     native_action_dim = int(dataset.get_dim('action'))
     preprocess = get_img_preprocessor('pixels','pixels',img_size=224)
-    ids = rng.choice(len(dataset), min(args.num_clips,len(dataset)), replace=False)
+    requested = min(args.num_clips, len(dataset))
+    ids = np.asarray(
+        choose_finite_action_indices(
+            dataset, rng.permutation(len(dataset)), requested
+        ),
+        dtype=int,
+    )
     if len(ids)<2:
         raise ValueError('Dataset must contain >=2 clips')
     pixels, actions = [], []
@@ -59,7 +90,7 @@ def main():
         pixels.append(raw)
         act = torch.as_tensor(sample['action']).clone()
         if not torch.isfinite(act).all():
-            raise ValueError('Nonfinite action clip; verify dataset boundary handling')
+            raise AssertionError('finite-action sampler returned an invalid clip')
         act = normalize_action_blocks(act, normalizer, native_action_dim)
         actions.append(act.reshape(args.history+args.horizon, -1))
     actions = torch.stack(actions)
