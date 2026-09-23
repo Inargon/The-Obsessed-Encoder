@@ -19,6 +19,7 @@ from additional_files import callbacks
 from additional_files.allocation_regularizers import AllocationRegularizer
 from additional_files.control_objectives import ControlObjective
 from additional_files.aligned_gradient_routing import control_aligned_prediction_surrogate
+from additional_files.decision_subspace_routing import DecisionSubspaceRouter
 from additional_files.component_gradient_diagnostics import (
     measure_component_gradient_geometry,
 )
@@ -164,9 +165,21 @@ def lejepa_forward(self, batch, stage, cfg):
             pred_component = pred_weight * output["pred_loss"]
             route_kwargs = OmegaConf.to_container(route_cfg, resolve=True)
             route_kwargs.pop("enabled", None)
-            surrogate, diagnostics = control_aligned_prediction_surrogate(
-                pred_component, output["control_loss"], emb, **route_kwargs
-            )
+            strategy = route_kwargs.pop("strategy", "aligned")
+            if strategy == "decision_subspace":
+                if not hasattr(self, "decision_subspace_router"):
+                    self.decision_subspace_router = DecisionSubspaceRouter(
+                        **route_kwargs
+                    )
+                surrogate, diagnostics = self.decision_subspace_router(
+                    pred_component, output["control_loss"], emb
+                )
+            elif strategy == "aligned":
+                surrogate, diagnostics = control_aligned_prediction_surrogate(
+                    pred_component, output["control_loss"], emb, **route_kwargs
+                )
+            else:
+                raise ValueError(f"unknown routing strategy {strategy!r}")
             output["loss"] = output["loss"] + surrogate
             output.update(diagnostics)
 
@@ -187,6 +200,9 @@ def lejepa_forward(self, batch, stage, cfg):
             "prediction_reference_retained_fraction",
             "prediction_norm_match_error",
             "prediction_direction_cosine_to_aligned",
+            "decision_subspace_rank",
+            "decision_subspace_prediction_coverage",
+            "decision_subspace_control_coverage",
         }
         or k.startswith("counterfactual_")
         or k.startswith("component_grad/")

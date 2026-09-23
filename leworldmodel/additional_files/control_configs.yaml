@@ -107,6 +107,21 @@ arms:
     control:
       <<: *masked_sequence_control
 
+  # History-aware decision-subspace prototype.  Losses, data and training
+  # budget remain matched to control_aligned_pred1; only the router changes.
+  decision_subspace_pred1:
+    overrides:
+      - +loss.pred_weight=1.0
+      - +loss.aligned_gradient_routing.enabled=true
+      - +loss.aligned_gradient_routing.strategy=decision_subspace
+      - +loss.aligned_gradient_routing.rank=16
+      - +loss.aligned_gradient_routing.decay=0.99
+      - +loss.aligned_gradient_routing.update_every=20
+      - +loss.aligned_gradient_routing.candidates_per_update=8
+      - +loss.aligned_gradient_routing.minimum_retention=0.0
+    control:
+      <<: *masked_sequence_control
+
   # RandGoal repair: within-episode control relations cannot identify a goal
   # that is constant throughout the episode.  Cross-batch action-plan
   # compatibility rewards state information that changes the expert's future

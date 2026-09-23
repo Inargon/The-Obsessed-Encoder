@@ -17,6 +17,7 @@ def test_control_grid_has_relation_core_sweep():
         "masked_sequence_pred07",
         "masked_sequence_pred0",
         "control_aligned_pred1",
+        "decision_subspace_pred1",
         "decision_aligned_pred1",
         "control_parallel_pred1",
         "control_shuffled_pred1",
@@ -46,6 +47,10 @@ def test_control_grid_has_relation_core_sweep():
     assert "+loss.pred_weight=1.0" in aligned
     assert "+loss.aligned_gradient_routing.enabled=true" in aligned
     assert "+loss.control.inverse_target=sequence" in aligned
+    subspace = config["arms"]["decision_subspace_pred1"]["overrides"]
+    assert "+loss.aligned_gradient_routing.strategy=decision_subspace" in subspace
+    assert "+loss.aligned_gradient_routing.rank=16" in subspace
+    assert "+loss.aligned_gradient_routing.minimum_retention=0.0" in subspace
     decision = config["arms"]["decision_aligned_pred1"]["overrides"]
     assert "+loss.aligned_gradient_routing.enabled=true" in decision
     assert "+loss.control.action_plan_weight=0.1" in decision
