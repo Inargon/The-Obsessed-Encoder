@@ -12,7 +12,7 @@
           "run_name": "cube_clean_jepa_full_seed0",
           "fixed_success_rate": 0.70
         },
-        "full_aligned": {
+        "ours": {
           "run_name": "cube_clean_aligned_full_seed0",
           "fixed_success_rate": 0.76
         },
@@ -68,7 +68,7 @@
           "run_name": "reacher_clean_jepa_full_seed0",
           "fixed_success_rate": 0.90
         },
-        "full_aligned": {
+        "ours": {
           "run_name": "reacher_clean_aligned_full_seed0",
           "fixed_success_rate": 0.86
         },
@@ -80,7 +80,7 @@
         }
       },
       "training_config_comparison": {
-        "full_aligned_vs_inverse_reach_json_diff_lines": 0
+        "ours_vs_inverse_reach_json_diff_lines": 0
       },
       "checkpoint_conversion": {
         "removed_training_only_control_tensors": 28,

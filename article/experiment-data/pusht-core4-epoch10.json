@@ -124,7 +124,7 @@
         "selected_action_normalized_l2": {"mean": 1.0428, "std": 0.0887}
       }
     },
-    "full_aligned": {
+    "ours": {
       "run_name": "mechanism-20260920-020356_full_full_seed0",
       "fixed_success_rate": 0.90,
       "backbone": {

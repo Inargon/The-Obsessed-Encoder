@@ -6,7 +6,7 @@ Arguments, claims, and recommendations belong in the article, not here.
 ## Files
 
 - `protocols.json`: evaluation and diagnostic protocol definitions.
-- `pusht-core4-epoch10.json`: matched JEPA, Joint, Scalar, and Full Aligned data.
+- `pusht-core4-epoch10.json`: matched JEPA, Joint, Scalar, and Ours data.
 - `pusht-lctrl-ablation-epoch10.json`: IDM-only, Inverse+Cycle,
   Inverse+Reach, and Full control-objective ablations.
 - `cross-task-clean.json`: clean Cube, TwoRoom, and Reacher measurements.
