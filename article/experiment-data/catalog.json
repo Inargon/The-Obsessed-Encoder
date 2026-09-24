@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "last_updated": "2026-09-24",
+  "files": [
+    "protocols.json",
+    "pusht-core4-epoch10.json",
+    "pusht-lctrl-ablation-epoch10.json",
+    "cross-task-clean.json",
+    "additional-runs.json"
+  ],
+  "rules": {
+    "contains_interpretation": false,
+    "success_rate_unit": "fraction",
+    "uncertainty_scope": "Diagnostic standard deviations vary sampling/probe seeds only unless explicitly stated otherwise",
+    "missing_value_policy": "omit"
+  },
+  "update_history": [
+    {
+      "date": "2026-09-24",
+      "event": "Initial registry assembled from preserved cluster outputs and article data snapshot"
+    }
+  ]
+}

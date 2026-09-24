@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "experiment_id": "clean_cross_task_results",
+  "condition": "clean",
+  "training_seed": 0,
+  "tasks": {
+    "cube": {
+      "evaluation_protocol": "clean_cube_fixed_sr_seed42",
+      "checkpoint": "weights_epoch_10.pt",
+      "runs": {
+        "jepa": {
+          "run_name": "cube_clean_jepa_full_seed0",
+          "fixed_success_rate": 0.70
+        },
+        "full_aligned": {
+          "run_name": "cube_clean_aligned_full_seed0",
+          "fixed_success_rate": 0.76
+        },
+        "inverse_reach": {
+          "run_name": "clean-inverse-reach-20260923-084931_cube_clean_inverse_reach_full_seed0",
+          "fixed_success_rate": 0.78,
+          "evaluation_job": "91234_1"
+        }
+      }
+    },
+    "tworoom": {
+      "evaluation_protocol": "clean_tworoom_online_curve",
+      "run_name": "clean-inverse-reach-20260922-191533_tworoom_clean_inverse_reach_full_seed0",
+      "checkpoint": "weights_epoch_10.pt",
+      "inverse_reach_online_success_curve": [
+        {"step": 2000, "success_rate": 0.34},
+        {"step": 4000, "success_rate": 0.38},
+        {"step": 6000, "success_rate": 0.82},
+        {"step": 8000, "success_rate": 0.78},
+        {"step": 10000, "success_rate": 0.50},
+        {"step": 12000, "success_rate": 0.62},
+        {"step": 14000, "success_rate": 0.62},
+        {"step": 16000, "success_rate": 0.64},
+        {"step": 18000, "success_rate": 0.76},
+        {"step": 20000, "success_rate": 0.78},
+        {"step": 22000, "success_rate": 0.76},
+        {"step": 24000, "success_rate": 0.80},
+        {"step": 26000, "success_rate": 0.90},
+        {"step": 28000, "success_rate": 0.92},
+        {"step": 30000, "success_rate": 0.86},
+        {"step": 32000, "success_rate": 0.96},
+        {"step": 34000, "success_rate": 0.94},
+        {"step": 36000, "success_rate": 0.94},
+        {"step": 38000, "success_rate": 0.92},
+        {"step": 40000, "success_rate": 0.90},
+        {"step": 42000, "success_rate": 0.94},
+        {"step": 44000, "success_rate": 0.94},
+        {"step": 46000, "success_rate": 0.90},
+        {"step": 48000, "success_rate": 0.96},
+        {"step": 50000, "success_rate": 0.96}
+      ],
+      "inverse_reach_peak_online_success_rate": 0.96,
+      "inverse_reach_last_online_success_rate": 0.96,
+      "provenance": {
+        "result_dir": "leworldmodel/results/clean-inverse-reach-20260922-191533"
+      }
+    },
+    "reacher": {
+      "evaluation_protocol": "clean_reacher_historical_seed42",
+      "checkpoint": "weights_epoch_10_historical_v2.pt",
+      "runs": {
+        "jepa": {
+          "run_name": "reacher_clean_jepa_full_seed0",
+          "fixed_success_rate": 0.90
+        },
+        "full_aligned": {
+          "run_name": "reacher_clean_aligned_full_seed0",
+          "fixed_success_rate": 0.86
+        },
+        "inverse_reach": {
+          "training_run_name": "clean-inverse-reach-20260923-084931_reacher_clean_inverse_reach_full_seed0",
+          "evaluation_bundle": "reacher_clean_inverse_reach_historical_eval_seed0",
+          "fixed_success_rate": 0.76,
+          "evaluation_job": "91315"
+        }
+      },
+      "training_config_comparison": {
+        "full_aligned_vs_inverse_reach_json_diff_lines": 0
+      },
+      "checkpoint_conversion": {
+        "removed_training_only_control_tensors": 28,
+        "renamed_encoder_tensors": 192,
+        "final_inference_tensors": 303
+      }
+    }
+  }
+}

@@ -1,0 +1,171 @@
+{
+  "schema_version": 1,
+  "experiment_id": "pusht-core4-epoch10-20260921",
+  "task": "PushT",
+  "condition": "episode-constant 5x5 RGB tag",
+  "training_seed": 0,
+  "checkpoint": "weights_epoch_10.pt",
+  "protocol_ids": [
+    "pusht_tagged_fixed_sr_seed42",
+    "pusht_frozen_probe_17_73_137",
+    "pusht_tag_geometry_17_73_137",
+    "pusht_tag_intervention_17_73_137"
+  ],
+  "runs": {
+    "jepa": {
+      "run_name": "colored_square_episode_seed0",
+      "fixed_success_rate": 0.0,
+      "backbone": {
+        "pusher_xy_r2": {"mean": 0.3802, "std": 0.0304},
+        "block_xy_r2": {"mean": 0.6165, "std": 0.0127},
+        "block_angle_sincos_r2": {"mean": -0.0572, "std": 0.0524},
+        "physical_mean_r2": 0.3132,
+        "tag_rgb_r2": {"mean": 0.9801, "std": 0.0020},
+        "same_scene": {"mean": 0.0770, "std": 0.0012},
+        "same_tag": {"mean": 0.9341, "std": 0.0054},
+        "scene_minus_tag": {"mean": -0.8570, "std": 0.0063},
+        "tag_content_ratio": {"mean": 12.2706, "std": 2.0881}
+      },
+      "projection": {
+        "pusher_xy_r2": {"mean": 0.1887, "std": 0.0462},
+        "block_xy_r2": {"mean": 0.3540, "std": 0.0209},
+        "block_angle_sincos_r2": {"mean": -0.2343, "std": 0.0577},
+        "tag_rgb_r2": {"mean": 0.9508, "std": 0.0046},
+        "same_scene": {"mean": 0.0146, "std": 0.0011},
+        "same_tag": {"mean": 0.8548, "std": 0.0112},
+        "scene_minus_tag": {"mean": -0.8402, "std": 0.0109},
+        "tag_content_ratio": {"mean": 5.8116, "std": 0.7295}
+      },
+      "context_tag_intervention": {
+        "cost_rmse_over_reference_std": {"mean": 77.0464, "std": 10.7384},
+        "pair_order_reversal": {"mean": 0.4086, "std": 0.0157},
+        "selected_candidate_changed": {"mean": 0.8958, "std": 0.0239},
+        "selected_action_normalized_l2": {"mean": 3.5830, "std": 0.2331}
+      },
+      "goal_tag_intervention": {
+        "cost_rmse_over_reference_std": {"mean": 76.9732, "std": 10.8830},
+        "pair_order_reversal": {"mean": 0.4084, "std": 0.0245},
+        "selected_candidate_changed": {"mean": 0.8880, "std": 0.0477},
+        "selected_action_normalized_l2": {"mean": 3.5198, "std": 0.2913}
+      }
+    },
+    "joint_no_routing": {
+      "run_name": "mechanism-20260920-020356_full_joint_seed0",
+      "fixed_success_rate": 0.72,
+      "backbone": {
+        "pusher_xy_r2": {"mean": 0.9975, "std": 0.0011},
+        "block_xy_r2": {"mean": 0.9308, "std": 0.0071},
+        "block_angle_sincos_r2": {"mean": 0.4680, "std": 0.0298},
+        "physical_mean_r2": 0.7988,
+        "tag_rgb_r2": {"mean": 0.9527, "std": 0.0079},
+        "same_scene": {"mean": 0.3664, "std": 0.0060},
+        "same_tag": {"mean": 0.6286, "std": 0.0120},
+        "scene_minus_tag": {"mean": -0.2622, "std": 0.0177},
+        "tag_content_ratio": {"mean": 1.4709, "std": 0.0458}
+      },
+      "projection": {
+        "pusher_xy_r2": {"mean": 0.9972, "std": 0.0021},
+        "block_xy_r2": {"mean": 0.9043, "std": 0.0091},
+        "block_angle_sincos_r2": {"mean": 0.2456, "std": 0.0467},
+        "tag_rgb_r2": {"mean": 0.8836, "std": 0.0114},
+        "same_scene": {"mean": 0.2546, "std": 0.0084},
+        "same_tag": {"mean": 0.4929, "std": 0.0144},
+        "scene_minus_tag": {"mean": -0.2382, "std": 0.0193},
+        "tag_content_ratio": {"mean": 1.3245, "std": 0.0190}
+      },
+      "context_tag_intervention": {
+        "cost_rmse_over_reference_std": {"mean": 3.5494, "std": 0.2521},
+        "pair_order_reversal": {"mean": 0.0898, "std": 0.0056},
+        "selected_candidate_changed": {"mean": 0.3750, "std": 0.0282},
+        "selected_action_normalized_l2": {"mean": 1.4191, "std": 0.2486}
+      },
+      "goal_tag_intervention": {
+        "cost_rmse_over_reference_std": {"mean": 3.5521, "std": 0.2456},
+        "pair_order_reversal": {"mean": 0.0840, "std": 0.0071},
+        "selected_candidate_changed": {"mean": 0.3958, "std": 0.0369},
+        "selected_action_normalized_l2": {"mean": 1.5594, "std": 0.2605}
+      }
+    },
+    "norm_matched_scalar": {
+      "run_name": "mechanism-20260920-020356_full_scalar_seed0",
+      "fixed_success_rate": 0.90,
+      "backbone": {
+        "pusher_xy_r2": {"mean": 0.9959, "std": 0.0005},
+        "block_xy_r2": {"mean": 0.9644, "std": 0.0037},
+        "block_angle_sincos_r2": {"mean": 0.8655, "std": 0.0153},
+        "physical_mean_r2": 0.9419,
+        "tag_rgb_r2": {"mean": 0.7669, "std": 0.0123},
+        "same_scene": {"mean": 0.7772, "std": 0.0017},
+        "same_tag": {"mean": 0.2158, "std": 0.0149},
+        "scene_minus_tag": {"mean": 0.5614, "std": 0.0158},
+        "tag_content_ratio": {"mean": 0.2655, "std": 0.0043}
+      },
+      "projection": {
+        "pusher_xy_r2": {"mean": 0.9962, "std": 0.0009},
+        "block_xy_r2": {"mean": 0.9417, "std": 0.0098},
+        "block_angle_sincos_r2": {"mean": 0.8171, "std": 0.0352},
+        "physical_mean_r2": 0.9183,
+        "tag_rgb_r2": {"mean": 0.7412, "std": 0.0044},
+        "same_scene": {"mean": 0.5543, "std": 0.0059},
+        "same_tag": {"mean": 0.1586, "std": 0.0126},
+        "scene_minus_tag": {"mean": 0.3957, "std": 0.0136},
+        "tag_content_ratio": {"mean": 0.5022, "std": 0.0138}
+      },
+      "context_tag_intervention": {
+        "cost_rmse_over_reference_std": {"mean": 1.8878, "std": 0.0988},
+        "pair_order_reversal": {"mean": 0.1035, "std": 0.0027},
+        "selected_candidate_changed": {"mean": 0.2786, "std": 0.0385},
+        "selected_action_normalized_l2": {"mean": 1.0588, "std": 0.1740}
+      },
+      "goal_tag_intervention": {
+        "cost_rmse_over_reference_std": {"mean": 1.8873, "std": 0.1029},
+        "pair_order_reversal": {"mean": 0.0980, "std": 0.0024},
+        "selected_candidate_changed": {"mean": 0.2604, "std": 0.0180},
+        "selected_action_normalized_l2": {"mean": 1.0428, "std": 0.0887}
+      }
+    },
+    "full_aligned": {
+      "run_name": "mechanism-20260920-020356_full_full_seed0",
+      "fixed_success_rate": 0.90,
+      "backbone": {
+        "pusher_xy_r2": {"mean": 0.9957, "std": 0.0004},
+        "block_xy_r2": {"mean": 0.9587, "std": 0.0025},
+        "block_angle_sincos_r2": {"mean": 0.8649, "std": 0.0084},
+        "physical_mean_r2": 0.9398,
+        "tag_rgb_r2": {"mean": 0.8947, "std": 0.0063},
+        "same_scene": {"mean": 0.8503, "std": 0.0019},
+        "same_tag": {"mean": 0.1487, "std": 0.0115},
+        "scene_minus_tag": {"mean": 0.7016, "std": 0.0124},
+        "tag_content_ratio": {"mean": 0.1616, "std": 0.0012}
+      },
+      "projection": {
+        "pusher_xy_r2": {"mean": 0.9959, "std": 0.0009},
+        "block_xy_r2": {"mean": 0.9348, "std": 0.0015},
+        "block_angle_sincos_r2": {"mean": 0.8045, "std": 0.0181},
+        "physical_mean_r2": 0.9117,
+        "tag_rgb_r2": {"mean": 0.8588, "std": 0.0126},
+        "same_scene": {"mean": 0.6568, "std": 0.0058},
+        "same_tag": {"mean": 0.1534, "std": 0.0084},
+        "scene_minus_tag": {"mean": 0.5034, "std": 0.0108},
+        "tag_content_ratio": {"mean": 0.3783, "std": 0.0092}
+      },
+      "context_tag_intervention": {
+        "cost_rmse_over_reference_std": {"mean": 1.5017, "std": 0.0566},
+        "pair_order_reversal": {"mean": 0.0829, "std": 0.0036},
+        "selected_candidate_changed": {"mean": 0.2318, "std": 0.0401},
+        "selected_action_normalized_l2": {"mean": 0.8255, "std": 0.1673}
+      },
+      "goal_tag_intervention": {
+        "cost_rmse_over_reference_std": {"mean": 1.5116, "std": 0.0528},
+        "pair_order_reversal": {"mean": 0.0764, "std": 0.0046},
+        "selected_candidate_changed": {"mean": 0.2161, "std": 0.0119},
+        "selected_action_normalized_l2": {"mean": 0.7266, "std": 0.1421}
+      }
+    }
+  },
+  "provenance": {
+    "type": "cluster_output_transcription",
+    "result_directory": "leworldmodel/results/core-four-checkpoint-audit-20260921",
+    "fixed_sr_job": 90560
+  }
+}

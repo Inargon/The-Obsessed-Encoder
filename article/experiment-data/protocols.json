@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "protocols": {
+    "pusht_tagged_fixed_sr_seed42": {
+      "task": "PushT",
+      "condition": "episode-constant 5x5 RGB tag",
+      "checkpoint": "weights_epoch_10.pt",
+      "num_eval": 50,
+      "evaluation_seed": 42,
+      "metric": "success_rate",
+      "measurement_type": "standalone fixed-checkpoint environment evaluation"
+    },
+    "pusht_frozen_probe_17_73_137": {
+      "task": "PushT",
+      "dataset": "pusht_expert_train.h5 with matched episode tag",
+      "num_clips": 1024,
+      "frames_per_clip": 4,
+      "frameskip": 5,
+      "split": "80/20 by sampled clip",
+      "ridge_alpha": 1.0,
+      "diagnostic_sampling_seeds": [17, 73, 137],
+      "measurement_type": "frozen linear ridge probe"
+    },
+    "pusht_tag_geometry_17_73_137": {
+      "task": "PushT",
+      "diagnostic_sampling_seeds": [17, 73, 137],
+      "metric": "mean-centered cosine similarity",
+      "pairings": ["same_scene", "same_tag", "baseline"],
+      "measurement_type": "frozen representation geometry"
+    },
+    "pusht_tag_intervention_17_73_137": {
+      "task": "PushT",
+      "dataset": "pusht_expert_train.h5",
+      "diagnostic_sampling_seeds": [17, 73, 137],
+      "num_clips": 128,
+      "candidates": 32,
+      "measurement_type": "offline frozen-checkpoint tag intervention with fixed observed candidate actions",
+      "not_environment_sr": true
+    },
+    "clean_cube_fixed_sr_seed42": {
+      "task": "Cube",
+      "condition": "clean",
+      "checkpoint": "weights_epoch_10.pt",
+      "num_eval": 50,
+      "evaluation_seed": 42,
+      "measurement_type": "standalone fixed-checkpoint environment evaluation"
+    },
+    "clean_tworoom_online_curve": {
+      "task": "TwoRoom",
+      "condition": "clean",
+      "measurement_type": "training-time online environment evaluation curve",
+      "evaluation_interval_steps": 2000
+    },
+    "clean_reacher_historical_seed42": {
+      "task": "Reacher",
+      "condition": "clean",
+      "environment": "swm/ReacherDMControl-v0",
+      "dataset": "dmc/reacher_random",
+      "checkpoint": "weights_epoch_10_historical_v2.pt",
+      "checkpoint_conversion": "rename modern ViT encoder keys to historical HuggingFace layout and remove control_objective.* training-only tensors",
+      "python_stack": "historical Python 3.10 reproduction environment",
+      "num_eval": 50,
+      "evaluation_seed": 42,
+      "solver_steps": 30,
+      "measurement_type": "standalone fixed-checkpoint historical-protocol environment evaluation"
+    }
+  }
+}

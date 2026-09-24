@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "experiment_id": "pusht_tagged_lctrl_ablation_epoch10",
+  "task": "PushT",
+  "condition": "tagged",
+  "training_seed": 0,
+  "checkpoint": "weights_epoch_10.pt",
+  "diagnostic_seeds": [17, 73, 137],
+  "protocols": {
+    "fixed_success_rate": "pusht_tagged_fixed_sr_seed42",
+    "readability": "pusht_frozen_probe_17_73_137",
+    "geometry": "pusht_tag_geometry_17_73_137",
+    "intervention": "pusht_tag_intervention_17_73_137"
+  },
+  "provenance": {
+    "diagnostic_result_dir": "leworldmodel/results/lctrl-epoch10-diagnostics-20260922",
+    "fixed_sr_result_dir": "leworldmodel/results/lctrl-fixed-sr-seed42-20260922",
+    "diagnostic_job": "90854",
+    "fixed_sr_job": "90796"
+  },
+  "runs": {
+    "idm_only": {
+      "label": "IDM-only",
+      "objective": "L_inv",
+      "fixed_success_rate": 0.86,
+      "backbone": {
+        "physical_mean_r2": {"mean": 0.9363, "std": 0.0055},
+        "pusher_xy_r2": {"mean": 0.9971, "std": 0.0006},
+        "block_xy_r2": {"mean": 0.9645, "std": 0.0012},
+        "block_angle_sincos_r2": {"mean": 0.8472, "std": 0.0154},
+        "tag_rgb_r2": {"mean": 0.8689, "std": 0.0097},
+        "same_scene_cosine": {"mean": 0.7428, "std": 0.0026},
+        "same_tag_cosine": {"mean": 0.2243, "std": 0.0197},
+        "scene_minus_tag_margin": {"mean": 0.5185, "std": 0.0222},
+        "tag_over_scene_intervention_ratio": {"mean": 0.3197, "std": 0.0115}
+      },
+      "projection": {
+        "physical_mean_r2": {"mean": 0.9140, "std": 0.0069},
+        "pusher_xy_r2": {"mean": 0.9976, "std": 0.0008},
+        "block_xy_r2": {"mean": 0.9453, "std": 0.0016},
+        "block_angle_sincos_r2": {"mean": 0.7991, "std": 0.0194},
+        "tag_rgb_r2": {"mean": 0.8652, "std": 0.0148},
+        "same_scene_cosine": {"mean": 0.5953, "std": 0.0056},
+        "same_tag_cosine": {"mean": 0.1554, "std": 0.0217},
+        "scene_minus_tag_margin": {"mean": 0.4399, "std": 0.0196},
+        "tag_over_scene_intervention_ratio": {"mean": 0.4727, "std": 0.0278}
+      },
+      "context_tag_intervention": {
+        "cost_rmse_over_reference_std": {"mean": 2.4792, "std": 0.0966},
+        "pair_order_reversal": {"mean": 0.1186, "std": 0.0043},
+        "selected_candidate_changed": {"mean": 0.3255, "std": 0.0586},
+        "selected_action_normalized_l2": {"mean": 1.0877, "std": 0.1967}
+      },
+      "goal_tag_intervention": {
+        "cost_rmse_over_reference_std": {"mean": 2.4752, "std": 0.0715},
+        "pair_order_reversal": {"mean": 0.1057, "std": 0.0073},
+        "selected_candidate_changed": {"mean": 0.2396, "std": 0.0565},
+        "selected_action_normalized_l2": {"mean": 0.8310, "std": 0.1545}
+      }
+    },
+    "inverse_cycle": {
+      "label": "Inverse+Cycle",
+      "objective": "L_inv + 0.5 L_cycle",
+      "fixed_success_rate": 0.80,
+      "backbone": {
+        "physical_mean_r2": {"mean": 0.9457, "std": 0.0073},
+        "pusher_xy_r2": {"mean": 0.9967, "std": 0.0002},
+        "block_xy_r2": {"mean": 0.9682, "std": 0.0034},
+        "block_angle_sincos_r2": {"mean": 0.8721, "std": 0.0193},
+        "tag_rgb_r2": {"mean": 0.7628, "std": 0.0113},
+        "same_scene_cosine": {"mean": 0.7372, "std": 0.0023},
+        "same_tag_cosine": {"mean": 0.2420, "std": 0.0240},
+        "scene_minus_tag_margin": {"mean": 0.4952, "std": 0.0242},
+        "tag_over_scene_intervention_ratio": {"mean": 0.3365, "std": 0.0192}
+      },
+      "projection": {
+        "physical_mean_r2": {"mean": 0.9276, "std": 0.0062},
+        "pusher_xy_r2": {"mean": 0.9969, "std": 0.0013},
+        "block_xy_r2": {"mean": 0.9482, "std": 0.0048},
+        "block_angle_sincos_r2": {"mean": 0.8375, "std": 0.0155},
+        "tag_rgb_r2": {"mean": 0.6592, "std": 0.0269},
+        "same_scene_cosine": {"mean": 0.4999, "std": 0.0092},
+        "same_tag_cosine": {"mean": 0.1764, "std": 0.0289},
+        "scene_minus_tag_margin": {"mean": 0.3234, "std": 0.0236},
+        "tag_over_scene_intervention_ratio": {"mean": 0.5989, "std": 0.0372}
+      },
+      "context_tag_intervention": {
+        "cost_rmse_over_reference_std": {"mean": 2.8035, "std": 0.1644},
+        "pair_order_reversal": {"mean": 0.1271, "std": 0.0045},
+        "selected_candidate_changed": {"mean": 0.3229, "std": 0.0597},
+        "selected_action_normalized_l2": {"mean": 0.9929, "std": 0.1903}
+      },
+      "goal_tag_intervention": {
+        "cost_rmse_over_reference_std": {"mean": 2.7918, "std": 0.1548},
+        "pair_order_reversal": {"mean": 0.1200, "std": 0.0057},
+        "selected_candidate_changed": {"mean": 0.2969, "std": 0.0358},
+        "selected_action_normalized_l2": {"mean": 0.9811, "std": 0.1446}
+      }
+    },
+    "inverse_reach": {
+      "label": "Inverse+Reach",
+      "objective": "L_inv + 0.1 L_reach",
+      "fixed_success_rate": 0.92,
+      "backbone": {
+        "physical_mean_r2": {"mean": 0.9358, "std": 0.0029},
+        "pusher_xy_r2": {"mean": 0.9952, "std": 0.0001},
+        "block_xy_r2": {"mean": 0.9594, "std": 0.0005},
+        "block_angle_sincos_r2": {"mean": 0.8529, "std": 0.0084},
+        "tag_rgb_r2": {"mean": 0.9112, "std": 0.0077},
+        "same_scene_cosine": {"mean": 0.9128, "std": 0.0011},
+        "same_tag_cosine": {"mean": 0.0776, "std": 0.0085},
+        "scene_minus_tag_margin": {"mean": 0.8352, "std": 0.0080},
+        "tag_over_scene_intervention_ratio": {"mean": 0.0904, "std": 0.0042}
+      },
+      "projection": {
+        "physical_mean_r2": {"mean": 0.9181, "std": 0.0077},
+        "pusher_xy_r2": {"mean": 0.9960, "std": 0.0006},
+        "block_xy_r2": {"mean": 0.9500, "std": 0.0003},
+        "block_angle_sincos_r2": {"mean": 0.8083, "std": 0.0230},
+        "tag_rgb_r2": {"mean": 0.8898, "std": 0.0064},
+        "same_scene_cosine": {"mean": 0.8180, "std": 0.0048},
+        "same_tag_cosine": {"mean": 0.1113, "std": 0.0050},
+        "scene_minus_tag_margin": {"mean": 0.7067, "std": 0.0071},
+        "tag_over_scene_intervention_ratio": {"mean": 0.1950, "std": 0.0113}
+      },
+      "context_tag_intervention": {
+        "cost_rmse_over_reference_std": {"mean": 0.9339, "std": 0.0694},
+        "pair_order_reversal": {"mean": 0.0580, "std": 0.0023},
+        "selected_candidate_changed": {"mean": 0.1667, "std": 0.0520},
+        "selected_action_normalized_l2": {"mean": 0.5846, "std": 0.1719}
+      },
+      "goal_tag_intervention": {
+        "cost_rmse_over_reference_std": {"mean": 0.9167, "std": 0.0337},
+        "pair_order_reversal": {"mean": 0.0474, "std": 0.0016},
+        "selected_candidate_changed": {"mean": 0.1224, "std": 0.0239},
+        "selected_action_normalized_l2": {"mean": 0.4540, "std": 0.0787}
+      }
+    },
+    "full": {
+      "label": "Ours",
+      "objective": "L_inv + 0.5 L_cycle + 0.1 L_reach",
+      "fixed_success_rate": 0.90,
+      "backbone": {
+        "physical_mean_r2": {"mean": 0.9398, "std": 0.0036},
+        "pusher_xy_r2": {"mean": 0.9957, "std": 0.0004},
+        "block_xy_r2": {"mean": 0.9587, "std": 0.0025},
+        "block_angle_sincos_r2": {"mean": 0.8649, "std": 0.0084},
+        "tag_rgb_r2": {"mean": 0.8947, "std": 0.0063},
+        "same_scene_cosine": {"mean": 0.8489, "std": 0.0004},
+        "same_tag_cosine": {"mean": 0.1345, "std": 0.0152},
+        "scene_minus_tag_margin": {"mean": 0.7144, "std": 0.0156},
+        "tag_over_scene_intervention_ratio": {"mean": 0.1624, "std": 0.0068}
+      },
+      "projection": {
+        "physical_mean_r2": {"mean": 0.9117, "std": 0.0064},
+        "pusher_xy_r2": {"mean": 0.9959, "std": 0.0009},
+        "block_xy_r2": {"mean": 0.9348, "std": 0.0015},
+        "block_angle_sincos_r2": {"mean": 0.8045, "std": 0.0181},
+        "tag_rgb_r2": {"mean": 0.8588, "std": 0.0126},
+        "same_scene_cosine": {"mean": 0.6561, "std": 0.0039},
+        "same_tag_cosine": {"mean": 0.1408, "std": 0.0170},
+        "scene_minus_tag_margin": {"mean": 0.5153, "std": 0.0146},
+        "tag_over_scene_intervention_ratio": {"mean": 0.3758, "std": 0.0240}
+      },
+      "context_tag_intervention": {
+        "cost_rmse_over_reference_std": {"mean": 1.5318, "std": 0.0823},
+        "pair_order_reversal": {"mean": 0.0818, "std": 0.0029},
+        "selected_candidate_changed": {"mean": 0.2318, "std": 0.0352},
+        "selected_action_normalized_l2": {"mean": 0.7781, "std": 0.1168}
+      },
+      "goal_tag_intervention": {
+        "cost_rmse_over_reference_std": {"mean": 1.5152, "std": 0.0740},
+        "pair_order_reversal": {"mean": 0.0761, "std": 0.0011},
+        "selected_candidate_changed": {"mean": 0.2057, "std": 0.0385},
+        "selected_action_normalized_l2": {"mean": 0.6376, "std": 0.0786}
+      }
+    }
+  }
+}

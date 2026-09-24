@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "experiment_id": "additional_mechanism_and_exploratory_runs",
+  "runs": {
+    "gradient_geometry_10k_full": {
+      "task": "PushT",
+      "condition": "tagged",
+      "step": 10000,
+      "full_true_cosine_mean": 0.1138,
+      "shuffled_control_cosine_mean": -0.0010,
+      "true_minus_shuffled_cosine": 0.1148,
+      "orthogonal_norm_fraction": 0.9906,
+      "data_note": "Retained-fraction value is not stored here because its previously printed formula did not match the deployed router formula."
+    },
+    "counterfactual_planning": {
+      "task": "PushT",
+      "condition": "tagged",
+      "run_name": "counterfactual-planning-20260920-025059_full_cfplan_seed0",
+      "training_seed": 0,
+      "smoke_job": {"job_id": "89985", "state": "COMPLETED", "elapsed": "00:01:43"},
+      "train_job": {"job_id": "89986", "state": "TIMEOUT", "elapsed": "20:00:09"},
+      "last_progress": {"epoch_index": 9, "epoch_count": 10, "step_in_epoch": 9000, "steps_per_epoch": 13933},
+      "epoch10_checkpoint_present": false,
+      "online_success_curve": [
+        {"step": 96000, "success_rate": 0.24},
+        {"step": 98000, "success_rate": 0.24},
+        {"step": 100000, "success_rate": 0.26},
+        {"step": 102000, "success_rate": 0.24},
+        {"step": 104000, "success_rate": 0.28},
+        {"step": 106000, "success_rate": 0.24},
+        {"step": 108000, "success_rate": 0.28},
+        {"step": 110000, "success_rate": 0.18},
+        {"step": 112000, "success_rate": 0.26},
+        {"step": 114000, "success_rate": 0.22},
+        {"step": 116000, "success_rate": 0.32},
+        {"step": 118000, "success_rate": 0.32},
+        {"step": 120000, "success_rate": 0.22},
+        {"step": 122000, "success_rate": 0.34},
+        {"step": 124000, "success_rate": 0.18},
+        {"step": 126000, "success_rate": 0.24},
+        {"step": 128000, "success_rate": 0.34},
+        {"step": 130000, "success_rate": 0.22},
+        {"step": 132000, "success_rate": 0.20},
+        {"step": 134000, "success_rate": 0.16}
+      ],
+      "provenance": {
+        "result_dir": "leworldmodel/results/counterfactual-planning-20260920-025059"
+      }
+    },
+    "decision_subspace": {
+      "task": "PushT",
+      "condition": "tagged",
+      "run_name": "decision-subspace-20260924-020854_full_decision_subspace_seed0",
+      "training_seed": 0,
+      "checkpoint": "weights_epoch_10.pt",
+      "router_configuration": {
+        "rank": 16,
+        "ema_decay": 0.99,
+        "update_every_steps": 20,
+        "candidate_count": 8,
+        "minimum_retention": 0.0
+      },
+      "jobs": {
+        "smoke": {"job_id": "91434", "state": "COMPLETED", "elapsed": "00:01:12"},
+        "train": {"job_id": "91435", "state": "COMPLETED", "elapsed": "11:26:32"},
+        "fixed_sr": {"job_id": "91517", "state": "COMPLETED", "elapsed": "00:02:00"}
+      },
+      "fixed_evaluation": {
+        "tagged": true,
+        "num_eval": 50,
+        "seed": 42,
+        "success_rate": 0.76
+      },
+      "training_diagnostic_snapshot": {
+        "step": 125599,
+        "decision_subspace_control_coverage": 0.6686936020851135,
+        "decision_subspace_prediction_coverage": 0.22230547666549683,
+        "decision_subspace_rank": 16.0,
+        "prediction_control_grad_cosine": 0.049168460071086884,
+        "prediction_grad_retained_fraction": 0.22014036774635315,
+        "prediction_reversed_fraction": 0.3046875
+      },
+      "provenance": {
+        "training_result_dir": "leworldmodel/results/decision-subspace-20260924-020854",
+        "fixed_sr_result_dir": "leworldmodel/results/decision-subspace-fixed-sr-20260924"
+      }
+    }
+  }
+}
