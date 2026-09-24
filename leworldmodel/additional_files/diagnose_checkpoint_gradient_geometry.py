@@ -9,6 +9,7 @@ so differences cannot be attributed to shuffled minibatches or masks.
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict
 import inspect
 import json
 import os
@@ -24,6 +25,9 @@ from omegaconf import OmegaConf, open_dict
 from torch.utils.data import DataLoader, Subset
 
 from additional_files.control_objectives import ControlObjective
+from additional_files.component_gradient_diagnostics import (
+    measure_component_gradient_geometry,
+)
 from additional_files.pixel_tag import attach_pixel_tag, tag_from_cfg
 from utils import get_column_normalizer, get_img_preprocessor
 
@@ -147,6 +151,8 @@ def audit_checkpoint(
     }
     prediction_losses = []
     control_losses = []
+    component_gradient_values = defaultdict(list)
+    control_term_values = defaultdict(list)
     eps = 1e-12
 
     for batch_index, batch in enumerate(loader):
@@ -182,6 +188,46 @@ def audit_checkpoint(
             **control_call_kwargs,
         )
         control_loss = control_metrics["control_loss"]
+
+        control_cfg = cfg.loss.control
+        horizon_keys = sorted(
+            key
+            for key in control_metrics
+            if key.startswith("inverse_horizon_") and key.endswith("_loss")
+        )
+        components = {}
+        if horizon_keys:
+            inverse_scale = float(control_cfg.get("inverse_weight", 1.0)) / len(
+                horizon_keys
+            )
+            components.update(
+                {
+                    key.removesuffix("_loss"): inverse_scale * control_metrics[key]
+                    for key in horizon_keys
+                }
+            )
+        for key, weight_name in (
+            ("action_cycle_loss", "cycle_weight"),
+            ("reachability_loss", "reachability_weight"),
+        ):
+            weight = float(control_cfg.get(weight_name, 0.0))
+            if weight and key in control_metrics:
+                components[key.removesuffix("_loss")] = weight * control_metrics[key]
+
+        component_geometry = measure_component_gradient_geometry(
+            prediction_loss, components, embedding
+        )
+        for name, value in component_geometry.items():
+            component_gradient_values[name].append(float(value.detach().cpu()))
+        for name, value in control_metrics.items():
+            if name.startswith(("inverse_horizon_", "reach_horizon_")) or name in {
+                "action_cycle_loss",
+                "reachability_loss",
+                "reachability_accuracy",
+                "reachability_shuffled_accuracy",
+                "reachability_action_margin",
+            }:
+                control_term_values[name].append(float(value.detach().cpu()))
 
         prediction_gradient = torch.autograd.grad(
             prediction_loss, embedding, retain_graph=True
@@ -234,6 +280,14 @@ def audit_checkpoint(
         "prediction_loss_mean": float(np.mean(prediction_losses)),
         "control_loss_mean": float(np.mean(control_losses)),
         "metrics": {name: summarize(values) for name, values in collected.items()},
+        "component_gradients": {
+            name: summarize(values)
+            for name, values in sorted(component_gradient_values.items())
+        },
+        "control_terms": {
+            name: summarize(values)
+            for name, values in sorted(control_term_values.items())
+        },
     }
     concise = result["metrics"]
     print(
@@ -244,6 +298,20 @@ def audit_checkpoint(
         f"retained={concise['cosine_admission_retained_fraction']['mean']:.4f} "
         f"conflict={concise['conflict_fraction']['mean']:.4f}"
     )
+    for name, stats in result["component_gradients"].items():
+        if name.endswith(("/cosine", "/negative_fraction", "/norm_ratio")):
+            print(f"  {name}={stats['mean']:+.4f}")
+    for horizon in range(1, int(cfg.loss.control.max_horizon) + 1):
+        prefix = f"reach_horizon_{horizon}"
+        accuracy = result["control_terms"].get(prefix + "_accuracy")
+        shuffled = result["control_terms"].get(prefix + "_shuffled_accuracy")
+        margin = result["control_terms"].get(prefix + "_action_margin")
+        if accuracy:
+            print(
+                f"  h={horizon}: reach={accuracy['mean']:.4f} "
+                f"shuffled={shuffled['mean'] if shuffled else float('nan'):.4f} "
+                f"margin={margin['mean'] if margin else float('nan'):+.4f}"
+            )
     return result
 
 

@@ -241,9 +241,17 @@ class ControlObjective(nn.Module):
         reach_correct = []
         shuffled_correct = []
         action_margins = []
+        reach_by_horizon = {}
+        reach_correct_by_horizon = {}
+        shuffled_correct_by_horizon = {}
+        action_margin_by_horizon = {}
         action_plan_terms = []
         action_plan_correct = []
         for horizon in range(1, max_horizon + 1):
+            horizon_reach_terms = []
+            horizon_reach_correct = []
+            horizon_shuffled_correct = []
+            horizon_action_margins = []
             start = control_emb[:, :-horizon]
             end = control_emb[:, horizon:]
             target_actions = self._action_chunk(actions, horizon)
@@ -316,8 +324,14 @@ class ControlObjective(nn.Module):
                         device=emb.device,
                         dtype=torch.long,
                     )
-                    reach_terms.append(F.cross_entropy(logits, target_index))
-                    reach_correct.append((logits.argmax(dim=-1) == target_index).float().mean())
+                    reach_term = F.cross_entropy(logits, target_index)
+                    reach_accuracy = (
+                        logits.argmax(dim=-1) == target_index
+                    ).float().mean()
+                    reach_terms.append(reach_term)
+                    reach_correct.append(reach_accuracy)
+                    horizon_reach_terms.append(reach_term)
+                    horizon_reach_correct.append(reach_accuracy)
                     if self.action_shuffle_diagnostics and emb.size(0) > 1:
                         # Same start, candidates, horizon and feature mask; only
                         # the action chunk comes from another episode. If the
@@ -334,16 +348,33 @@ class ControlObjective(nn.Module):
                                 torch.einsum("bd,btd->bt", shuffled_query, keys)
                                 / self.temperature
                             )
-                            shuffled_correct.append(
-                                (shuffled_logits.argmax(dim=-1) == target_index)
-                                .float()
-                                .mean()
-                            )
+                            shuffled_accuracy = (
+                                shuffled_logits.argmax(dim=-1) == target_index
+                            ).float().mean()
+                            shuffled_correct.append(shuffled_accuracy)
+                            horizon_shuffled_correct.append(shuffled_accuracy)
                             row = torch.arange(emb.size(0), device=emb.device)
-                            action_margins.append(
-                                (logits.detach()[row, target_index]
-                                 - shuffled_logits[row, target_index]).mean()
-                            )
+                            action_margin = (
+                                logits.detach()[row, target_index]
+                                - shuffled_logits[row, target_index]
+                            ).mean()
+                            action_margins.append(action_margin)
+                            horizon_action_margins.append(action_margin)
+
+            if horizon_reach_terms:
+                reach_by_horizon[
+                    f"reach_horizon_{horizon}_loss"
+                ] = torch.stack(horizon_reach_terms).mean()
+                reach_correct_by_horizon[
+                    f"reach_horizon_{horizon}_accuracy"
+                ] = torch.stack(horizon_reach_correct).mean().detach()
+            if horizon_shuffled_correct:
+                shuffled_correct_by_horizon[
+                    f"reach_horizon_{horizon}_shuffled_accuracy"
+                ] = torch.stack(horizon_shuffled_correct).mean().detach()
+                action_margin_by_horizon[
+                    f"reach_horizon_{horizon}_action_margin"
+                ] = torch.stack(horizon_action_margins).mean().detach()
 
         inverse_loss = torch.stack(inverse_terms).mean()
         zero = inverse_loss * 0.0
@@ -435,4 +466,8 @@ class ControlObjective(nn.Module):
             "dynamic_variance_loss": dynamic_variance,
             "dynamic_covariance_loss": dynamic_covariance,
             **inverse_by_horizon,
+            **reach_by_horizon,
+            **reach_correct_by_horizon,
+            **shuffled_correct_by_horizon,
+            **action_margin_by_horizon,
         }

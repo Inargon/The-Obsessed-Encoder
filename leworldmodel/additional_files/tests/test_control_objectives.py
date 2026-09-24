@@ -90,6 +90,11 @@ def test_masked_reachability_reports_action_shuffle_diagnostics():
 
     assert 0 <= terms["reachability_shuffled_accuracy"] <= 1
     assert torch.isfinite(terms["reachability_action_margin"])
+    for horizon in (1, 2, 3):
+        assert terms[f"reach_horizon_{horizon}_loss"] > 0
+        assert 0 <= terms[f"reach_horizon_{horizon}_accuracy"] <= 1
+        assert 0 <= terms[f"reach_horizon_{horizon}_shuffled_accuracy"] <= 1
+        assert torch.isfinite(terms[f"reach_horizon_{horizon}_action_margin"])
 
 
 def test_action_plan_compatibility_trains_state_and_plan_heads():
