@@ -42,3 +42,15 @@ python article/experiment-data/validate_registry.py \
 ```
 
 The CSV is derived output. JSON files are the source of truth.
+
+## Local preview
+
+From the repository root, run:
+
+```powershell
+$env:PORT = 8766
+node article/serve-preview.mjs
+```
+
+Then open `http://127.0.0.1:8766/`. The preview is read-only and loads the
+JSON source files without caching.

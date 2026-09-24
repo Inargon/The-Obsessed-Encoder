@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <base href="/experiment-data/">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Experiment Data Registry</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    body { margin: 0; background: #0c1017; color: #e8edf5; }
+    main { width: min(1100px, calc(100% - 40px)); margin: 0 auto; padding: 48px 0 80px; }
+    h1 { margin: 0 0 10px; font-size: clamp(30px, 5vw, 52px); letter-spacing: -0.04em; }
+    .subtitle { color: #9eabc0; line-height: 1.7; max-width: 760px; margin-bottom: 30px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 28px; }
+    .pill { padding: 7px 11px; border: 1px solid #2b3443; border-radius: 999px; color: #b7c4d8; background: #121925; font-size: 13px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+    details { background: #121925; border: 1px solid #253043; border-radius: 14px; overflow: hidden; }
+    details[open] { border-color: #4d70a7; }
+    summary { cursor: pointer; padding: 18px 20px; font-weight: 700; list-style: none; }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: "+"; float: right; color: #7fa9e8; }
+    details[open] summary::after { content: "−"; }
+    .path { display: block; margin-top: 5px; color: #8291a8; font: 12px ui-monospace, monospace; font-weight: 400; }
+    pre { margin: 0; padding: 18px 20px 22px; border-top: 1px solid #253043; overflow: auto; max-height: 68vh; background: #0a0f16; color: #cfe1ff; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .error { color: #ff9b9b; }
+    footer { margin-top: 26px; color: #77859a; font-size: 13px; }
+    a { color: #8ab8ff; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>实验数据账本</h1>
+    <p class="subtitle">只展示测量值、评测协议、checkpoint、seed 和来源。这里不包含实验推论；JSON 文件是唯一数据源。</p>
+    <div class="meta" id="meta"></div>
+    <section class="grid" id="registry"></section>
+    <footer>页面使用 <code>Cache-Control: no-store</code>，刷新即可读取最新 JSON。</footer>
+  </main>
+  <script>
+    const labels = {
+      "protocols.json": "评测协议",
+      "pusht-core4-epoch10.json": "PushT 核心四模型",
+      "pusht-lctrl-ablation-epoch10.json": "PushT Lctrl 消融",
+      "cross-task-clean.json": "Clean 跨任务",
+      "additional-runs.json": "补充与探索实验"
+    };
+
+    async function loadJson(path) {
+      const response = await fetch(path, { cache: "no-store" });
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+      return response.json();
+    }
+
+    async function render() {
+      const registry = document.querySelector("#registry");
+      try {
+        const catalog = await loadJson("catalog.json");
+        document.querySelector("#meta").innerHTML = [
+          `Schema v${catalog.schema_version}`,
+          `更新 ${catalog.last_updated}`,
+          `${catalog.files.length} 个数据文件`,
+          "Success rate 使用 0–1"
+        ].map(text => `<span class="pill">${text}</span>`).join("");
+
+        for (const file of catalog.files) {
+          const details = document.createElement("details");
+          const summary = document.createElement("summary");
+          summary.innerHTML = `${labels[file] || file}<span class="path">${file}</span>`;
+          const pre = document.createElement("pre");
+          pre.textContent = "加载中…";
+          details.append(summary, pre);
+          registry.append(details);
+          details.addEventListener("toggle", async () => {
+            if (!details.open || pre.dataset.loaded) return;
+            try {
+              pre.textContent = JSON.stringify(await loadJson(file), null, 2);
+              pre.dataset.loaded = "true";
+            } catch (error) {
+              pre.textContent = `读取失败：${error.message}`;
+              pre.classList.add("error");
+            }
+          });
+        }
+      } catch (error) {
+        registry.innerHTML = `<p class="error">目录读取失败：${error.message}</p>`;
+      }
+    }
+    render();
+  </script>
+</body>
+</html>
