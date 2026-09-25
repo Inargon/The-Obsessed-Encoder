@@ -18,6 +18,7 @@ from utils import get_column_normalizer, get_img_preprocessor, SaveCkptCallback
 from additional_files import callbacks
 from additional_files.allocation_regularizers import AllocationRegularizer
 from additional_files.control_objectives import ControlObjective
+from additional_files.delta_jepa import LatentDifferenceActionDecoder
 from additional_files.aligned_gradient_routing import control_aligned_prediction_surrogate
 from additional_files.decision_subspace_routing import DecisionSubspaceRouter
 from additional_files.component_gradient_diagnostics import (
@@ -183,6 +184,14 @@ def lejepa_forward(self, batch, stage, cfg):
             output["loss"] = output["loss"] + surrogate
             output.update(diagnostics)
 
+    # Matched Delta-JEPA baseline.  This branch intentionally bypasses the
+    # control router: it supervises latent displacements directly and is a
+    # competing representation objective, not a component of Ours.
+    if hasattr(self.model, "delta_action_decoder"):
+        delta = self.model.delta_action_decoder(emb, batch["action"])
+        output.update(delta)
+        output["loss"] = output["loss"] + output["delta_jepa_loss"]
+
     metrics_dict = {
         f"{stage}/{k}": v.detach()
         for k, v in output.items()
@@ -206,6 +215,7 @@ def lejepa_forward(self, batch, stage, cfg):
         }
         or k.startswith("counterfactual_")
         or k.startswith("component_grad/")
+        or k.startswith("delta_")
     }
     self.log_dict(metrics_dict, on_step=True, sync_dist=True)
     return output
@@ -284,6 +294,16 @@ def run(cfg):
             embed_dim=cfg.embed_dim,
             action_dim=cfg.model.action_encoder.input_dim,
             **control_kwargs,
+        )
+
+    delta_cfg = cfg.loss.get("delta_jepa")
+    if delta_cfg and delta_cfg.get("enabled", True):
+        delta_kwargs = OmegaConf.to_container(delta_cfg, resolve=True)
+        delta_kwargs.pop("enabled", None)
+        world_model.delta_action_decoder = LatentDifferenceActionDecoder(
+            embed_dim=cfg.embed_dim,
+            action_dim=cfg.model.action_encoder.input_dim,
+            **delta_kwargs,
         )
 
     optimizers = {
