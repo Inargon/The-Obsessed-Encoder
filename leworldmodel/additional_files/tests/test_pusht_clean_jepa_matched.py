@@ -20,3 +20,16 @@ def test_smoke_gets_an_isolated_checkpoint_namespace(monkeypatch):
     monkeypatch.setenv("PUSHT_CLEAN_JEPA_ARM", "pusht_clean_jepa_matched_smoke")
     config = run_pusht_clean_jepa_matched.load_pusht_clean_jepa_matched_configs()
     assert set(config["arms"]) == {"pusht_clean_jepa_matched_smoke"}
+
+
+def test_main_can_invoke_installed_loader_without_recursion(monkeypatch):
+    def fake_runner_main():
+        config = run_pusht_clean_jepa_matched.base_runner.load_configs()
+        assert set(config["arms"]) == {"pusht_clean_jepa_matched_full"}
+        return 0
+
+    monkeypatch.delenv("PUSHT_CLEAN_JEPA_ARM", raising=False)
+    monkeypatch.setattr(
+        run_pusht_clean_jepa_matched.base_runner, "main", fake_runner_main
+    )
+    assert run_pusht_clean_jepa_matched.main() == 0

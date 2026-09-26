@@ -16,8 +16,13 @@ except ImportError:
     import run as base_runner
 
 
+# ``main`` installs our loader on ``base_runner``.  Keep the original callable
+# before doing so; looking it up through ``base_runner`` later would recurse.
+UPSTREAM_LOAD_CONFIGS = base_runner.load_configs
+
+
 def load_pusht_clean_jepa_matched_configs() -> dict:
-    config = copy.deepcopy(base_runner.load_configs())
+    config = copy.deepcopy(UPSTREAM_LOAD_CONFIGS())
     baseline = copy.deepcopy(config["arms"]["baseline"])
 
     # Give smoke and full runs distinct checkpoint namespaces.  This prevents
