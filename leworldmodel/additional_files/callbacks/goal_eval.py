@@ -121,6 +121,10 @@ class GoalEvalCallback(pl.Callback):
             cfg_dir / "solver" / (self.cfg_block.get("solver", "cem") + ".yaml")
         )
         cfg.pop("defaults", None)
+        # The caller owns the evaluation seed.  Eval YAML files retain 42 as
+        # a convenient CLI default, but must not silently override explicit
+        # seeds used for repeated fixed-set evaluation.
+        cfg.seed = int(self.seed)
         # Precedence: the arm's explicit override, else the training dataset
         # (each arm evaluates on its own distribution). The upstream eval
         # yaml's dataset_name is a legacy extensionless value; never used.
