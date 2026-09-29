@@ -18,9 +18,9 @@ import subprocess
 import sys
 
 try:
-    from .lctrl_ablation_campaign import environment, source_digest
+    from .clean_inverse_reach_campaign import environment, source_digest
 except ImportError:
-    from lctrl_ablation_campaign import environment, source_digest
+    from clean_inverse_reach_campaign import environment, source_digest
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -47,6 +47,14 @@ ARMS = {
         "description": "three horizons with equal Reach weight",
     },
 }
+
+
+def campaign_environment() -> dict[str, str]:
+    """Use group storage for all caches and per-job temporary files."""
+    env = environment()
+    for name in ("SPT_CACHE_DIR", "XDG_CACHE_HOME", "TMPDIR"):
+        Path(env[name]).mkdir(parents=True, exist_ok=True)
+    return env
 
 
 def _replace_override(overrides: list[str], key: str, value: object) -> None:
@@ -153,7 +161,8 @@ def main() -> None:
     parser.add_argument("--campaign", type=Path)
     parser.add_argument("--arm-index", type=int)
     args = parser.parse_args()
-    os.environ.update(environment())
+    runtime_env = campaign_environment()
+    os.environ.update(runtime_env)
 
     if args.worker:
         if args.campaign is None or args.arm_index is None:
@@ -192,7 +201,7 @@ def main() -> None:
             str(HERE / "tests/test_control_objectives.py"),
         ],
         cwd=REPO,
-        env=environment(),
+        env=runtime_env,
         check=True,
     )
     root = REPO / "leworldmodel/results" / (
