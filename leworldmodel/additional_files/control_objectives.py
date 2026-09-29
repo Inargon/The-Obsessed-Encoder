@@ -49,6 +49,7 @@ class ControlObjective(nn.Module):
         action_plan_weight: float = 0.0,
         mask_keep_prob: float = 0.5,
         temperature: float = 0.1,
+        reach_aggregation: str = "pair",
         inverse_target: str = "mean",
         action_shuffle_diagnostics: bool = False,
         context_dim: int = 32,
@@ -68,6 +69,8 @@ class ControlObjective(nn.Module):
             raise ValueError("mask_keep_prob must be in (0, 1]")
         if temperature <= 0.0:
             raise ValueError("temperature must be positive")
+        if reach_aggregation not in {"pair", "horizon"}:
+            raise ValueError("reach_aggregation must be 'pair' or 'horizon'")
         if action_plan_weight < 0.0:
             raise ValueError("action_plan_weight must be non-negative")
         if inverse_target not in {"mean", "sequence"}:
@@ -85,6 +88,7 @@ class ControlObjective(nn.Module):
         self.action_plan_weight = action_plan_weight
         self.mask_keep_prob = mask_keep_prob
         self.temperature = temperature
+        self.reach_aggregation = reach_aggregation
         self.inverse_target = inverse_target
         self.action_shuffle_diagnostics = action_shuffle_diagnostics
         self.context_dim = context_dim if mode == "factorized_reachability" else 0
@@ -390,7 +394,17 @@ class ControlObjective(nn.Module):
                 )
                 cycle_loss = F.smooth_l1_loss(reconstructed, actions[:, :length])
 
-        reachability_loss = torch.stack(reach_terms).mean() if reach_terms else zero
+        if not reach_terms:
+            reachability_loss = zero
+        elif self.reach_aggregation == "pair":
+            # Every valid (start, horizon) pair has equal weight. For a clip
+            # of length T this gives horizon h an aggregate weight T - h.
+            reachability_loss = torch.stack(reach_terms).mean()
+        else:
+            # First average over valid starts within each horizon, then give
+            # every represented horizon equal weight. This is the matched
+            # alternative used by the horizon-weighting ablation.
+            reachability_loss = torch.stack(list(reach_by_horizon.values())).mean()
         action_plan_loss = (
             torch.stack(action_plan_terms).mean() if action_plan_terms else zero
         )

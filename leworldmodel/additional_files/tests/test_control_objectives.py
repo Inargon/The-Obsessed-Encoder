@@ -97,6 +97,60 @@ def test_masked_reachability_reports_action_shuffle_diagnostics():
         assert torch.isfinite(terms[f"reach_horizon_{horizon}_action_margin"])
 
 
+def test_pair_reach_aggregation_weights_every_valid_temporal_pair_equally():
+    emb, actions, pred_emb = _inputs()
+    objective = ControlObjective(
+        embed_dim=12,
+        action_dim=2,
+        mode="masked_reachability",
+        max_horizon=3,
+        inverse_target="sequence",
+        reach_aggregation="pair",
+    ).eval()
+
+    terms = objective(emb, actions, pred_emb)
+    expected = (
+        3 * terms["reach_horizon_1_loss"]
+        + 2 * terms["reach_horizon_2_loss"]
+        + terms["reach_horizon_3_loss"]
+    ) / 6
+
+    assert torch.allclose(terms["reachability_loss"], expected)
+
+
+def test_horizon_reach_aggregation_gives_each_horizon_equal_weight():
+    emb, actions, pred_emb = _inputs()
+    objective = ControlObjective(
+        embed_dim=12,
+        action_dim=2,
+        mode="masked_reachability",
+        max_horizon=3,
+        inverse_target="sequence",
+        reach_aggregation="horizon",
+    ).eval()
+
+    terms = objective(emb, actions, pred_emb)
+    expected = torch.stack(
+        [terms[f"reach_horizon_{horizon}_loss"] for horizon in (1, 2, 3)]
+    ).mean()
+
+    assert torch.allclose(terms["reachability_loss"], expected)
+
+
+def test_reach_aggregation_rejects_unknown_policy():
+    try:
+        ControlObjective(
+            embed_dim=12,
+            action_dim=2,
+            mode="masked_reachability",
+            reach_aggregation="unknown",
+        )
+    except ValueError as error:
+        assert "reach_aggregation" in str(error)
+    else:
+        raise AssertionError("unknown reach aggregation policy was accepted")
+
+
 def test_action_plan_compatibility_trains_state_and_plan_heads():
     emb, actions, pred_emb = _inputs()
     objective = ControlObjective(

@@ -74,6 +74,7 @@ arms:
       reachability_weight: 0.1
       mask_keep_prob: 0.5
       temperature: 0.1
+      reach_aggregation: pair
       action_shuffle_diagnostics: true
 
   masked_sequence_pred03:
