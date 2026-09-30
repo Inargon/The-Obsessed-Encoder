@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -28,6 +29,52 @@ DEFAULT_OUTPUT_ROOT = Path("/grp01/ids_compcog/song/intact")
 # ``pure_cem`` is the corresponding CLEAR-LeWM adapter spelling and is not a
 # valid solver/config name for INTACT's native eval.py entrypoint.
 EVAL_MODES = ("direct", "cem")
+
+
+def validate_clean_audit(path: Path | None) -> tuple[bool, dict | None, str | None]:
+    """Validate the local reproduction gate, not merely the file's existence."""
+    if path is None:
+        return False, None, "clean audit path was not provided"
+    if not path.is_file():
+        return False, None, f"clean audit does not exist: {path}"
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return False, None, f"cannot read clean audit: {error}"
+    expected = {
+        "status": "pass",
+        "benchmark": "clean PushT",
+        "upstream_commit": PINNED_COMMIT,
+        "protocol": "official LeWM",
+        "inference_mode": "direct",
+        "search_enabled": False,
+    }
+    mismatches = [
+        f"{key}={record.get(key)!r}, expected {value!r}"
+        for key, value in expected.items()
+        if record.get(key) != value
+    ]
+    if int(record.get("num_eval", 0)) < 100:
+        mismatches.append("num_eval must be at least 100")
+    success_rate = record.get("success_rate")
+    if not isinstance(success_rate, (int, float)) or not 0.0 <= success_rate <= 1.0:
+        mismatches.append("success_rate must be a fraction in [0, 1]")
+    checkpoint = Path(str(record.get("checkpoint", "")))
+    expected_hash = record.get("checkpoint_sha256")
+    if not checkpoint.is_file():
+        mismatches.append(f"audited checkpoint is missing: {checkpoint}")
+    elif not isinstance(expected_hash, str):
+        mismatches.append("checkpoint_sha256 is missing")
+    else:
+        digest = hashlib.sha256()
+        with checkpoint.open("rb") as handle:
+            while chunk := handle.read(8 * 1024 * 1024):
+                digest.update(chunk)
+        if digest.hexdigest() != expected_hash:
+            mismatches.append("audited checkpoint SHA-256 no longer matches")
+    if mismatches:
+        return False, record, "; ".join(mismatches)
+    return True, record, None
 
 
 def command_text(parts) -> str:
@@ -54,6 +101,7 @@ def preflight(args) -> dict:
         dirty = subprocess.check_output(
             ["git", "status", "--short"], cwd=args.intact_root, text=True
         ).strip()
+    audit_valid, audit_record, audit_error = validate_clean_audit(args.clean_audit)
     return {
         "paths": {key: str(value) for key, value in paths.items()},
         "missing": missing,
@@ -62,6 +110,15 @@ def preflight(args) -> dict:
         "intact_dirty": bool(dirty),
         "clean_audit": str(args.clean_audit) if args.clean_audit else None,
         "clean_audit_exists": bool(args.clean_audit and args.clean_audit.is_file()),
+        "clean_audit_valid": audit_valid,
+        "clean_audit_error": audit_error,
+        "clean_audit_summary": None if audit_record is None else {
+            key: audit_record.get(key)
+            for key in (
+                "training_seed", "evaluation_seed", "num_eval",
+                "success_rate", "checkpoint_sha256", "job_id",
+            )
+        },
     }
 
 
@@ -224,8 +281,11 @@ def main() -> None:
         parser.error("preflight missing: " + ", ".join(checks["missing"]))
     if checks["intact_commit"] != PINNED_COMMIT or checks["intact_dirty"]:
         parser.error("pinned clean INTACT checkout preflight failed")
-    if not checks["clean_audit_exists"]:
-        parser.error("tagged training requires --clean-audit with the clean result")
+    if not checks["clean_audit_valid"]:
+        parser.error(
+            "tagged training requires a valid clean audit: "
+            + str(checks["clean_audit_error"])
+        )
 
     subprocess.run([
         sys.executable, "-m", "pytest", "-q",
