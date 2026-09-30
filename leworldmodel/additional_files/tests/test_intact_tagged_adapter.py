@@ -11,6 +11,7 @@ from additional_files.intact_tagged_adapter import (
 )
 from additional_files.intact_tagged_campaign import (
     EVAL_MODES,
+    SMOKE_LOADER_OVERRIDES,
     adapter_prefix,
     validate_clean_audit,
 )
@@ -18,6 +19,12 @@ from additional_files.intact_tagged_campaign import (
 
 def test_official_lewm_evaluation_mode_names():
     assert EVAL_MODES == ("direct", "cem")
+
+
+def test_single_process_smoke_disables_prefetching():
+    assert "loader.num_workers=0" in SMOKE_LOADER_OVERRIDES
+    assert "loader.persistent_workers=false" in SMOKE_LOADER_OVERRIDES
+    assert "loader.prefetch_factor=null" in SMOKE_LOADER_OVERRIDES
 
 
 def test_adapter_global_flags_precede_remainder_phase(tmp_path):

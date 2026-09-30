@@ -29,6 +29,11 @@ DEFAULT_OUTPUT_ROOT = Path("/grp01/ids_compcog/song/intact")
 # ``pure_cem`` is the corresponding CLEAR-LeWM adapter spelling and is not a
 # valid solver/config name for INTACT's native eval.py entrypoint.
 EVAL_MODES = ("direct", "cem")
+SMOKE_LOADER_OVERRIDES = (
+    "loader.num_workers=0",
+    "loader.persistent_workers=false",
+    "loader.prefetch_factor=null",
+)
 
 
 def validate_clean_audit(path: Path | None) -> tuple[bool, dict | None, str | None]:
@@ -174,7 +179,7 @@ def submit(args, root: Path, manifest: dict) -> None:
     smoke_cmd = adapter_prefix(args, "train", args.tag_seed) + [
         "--config-name=intact_goal", f"output_model_name={smoke_name}",
         f"seed={args.train_seed}", "+trainer.max_steps=2",
-        "loader.num_workers=0", "loader.persistent_workers=false",
+        *SMOKE_LOADER_OVERRIDES,
     ]
     smoke_shell = "\n".join(
         exports + [command_text(smoke_cmd), "echo INTACT_TAGGED_SMOKE_COMPLETE"]
