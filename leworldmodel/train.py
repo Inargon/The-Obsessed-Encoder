@@ -28,11 +28,19 @@ from additional_files.counterfactual_planning import (
     counterfactual_planning_objective,
 )
 from additional_files.pixel_tag import attach_pixel_tag, tag_from_cfg
+from additional_files.stage2_training import (
+    configure_stage2,
+    enforce_frozen_representation_eval,
+)
 # <<< obsessed-encoder
 
 
 def lejepa_forward(self, batch, stage, cfg):
     """encode observations, predict next states, compute losses."""
+
+    # Lightning recursively calls train() on the whole model. A frozen Stage-2
+    # representation must also keep projector BatchNorm/dropout state fixed.
+    enforce_frozen_representation_eval(self.model)
 
     ctx_len = cfg.history_size
     n_preds = cfg.num_preds
@@ -320,6 +328,10 @@ def run(cfg):
             action_dim=cfg.model.action_encoder.input_dim,
             **delta_kwargs,
         )
+
+    # Stage 2 is configured only after all optional heads exist, so a Stage-1
+    # checkpoint loads strictly and verifies that the architecture is matched.
+    configure_stage2(world_model, cfg)
 
     optimizers = {
         'model_opt': {
