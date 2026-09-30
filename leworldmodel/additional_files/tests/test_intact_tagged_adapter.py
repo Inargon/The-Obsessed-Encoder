@@ -11,7 +11,11 @@ from additional_files.intact_tagged_adapter import (
 )
 from additional_files.intact_tagged_campaign import (
     EVAL_MODES,
+    OFFICIAL_GLOBAL_BATCH_SIZE,
     SMOKE_LOADER_OVERRIDES,
+    TRAIN_ACCUMULATE_GRAD_BATCHES,
+    TRAIN_MEMORY_OVERRIDES,
+    TRAIN_MICRO_BATCH_SIZE,
     adapter_prefix,
     validate_clean_audit,
 )
@@ -22,9 +26,22 @@ def test_official_lewm_evaluation_mode_names():
 
 
 def test_single_process_smoke_disables_prefetching():
+    assert f"loader.batch_size={TRAIN_MICRO_BATCH_SIZE}" in SMOKE_LOADER_OVERRIDES
     assert "loader.num_workers=0" in SMOKE_LOADER_OVERRIDES
     assert "loader.persistent_workers=false" in SMOKE_LOADER_OVERRIDES
     assert "loader.prefetch_factor=null" in SMOKE_LOADER_OVERRIDES
+
+
+def test_training_preserves_official_effective_batch_size():
+    assert (
+        TRAIN_MICRO_BATCH_SIZE * TRAIN_ACCUMULATE_GRAD_BATCHES
+        == OFFICIAL_GLOBAL_BATCH_SIZE
+    )
+    assert f"loader.batch_size={TRAIN_MICRO_BATCH_SIZE}" in TRAIN_MEMORY_OVERRIDES
+    assert (
+        f"+trainer.accumulate_grad_batches={TRAIN_ACCUMULATE_GRAD_BATCHES}"
+        in TRAIN_MEMORY_OVERRIDES
+    )
 
 
 def test_adapter_global_flags_precede_remainder_phase(tmp_path):

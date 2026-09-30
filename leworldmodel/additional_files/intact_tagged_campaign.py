@@ -29,10 +29,19 @@ DEFAULT_OUTPUT_ROOT = Path("/grp01/ids_compcog/song/intact")
 # ``pure_cem`` is the corresponding CLEAR-LeWM adapter spelling and is not a
 # valid solver/config name for INTACT's native eval.py entrypoint.
 EVAL_MODES = ("direct", "cem")
+OFFICIAL_GLOBAL_BATCH_SIZE = 256
+TRAIN_MICRO_BATCH_SIZE = 128
+TRAIN_ACCUMULATE_GRAD_BATCHES = 2
 SMOKE_LOADER_OVERRIDES = (
+    f"loader.batch_size={TRAIN_MICRO_BATCH_SIZE}",
     "loader.num_workers=0",
     "loader.persistent_workers=false",
     "loader.prefetch_factor=null",
+    f"+trainer.accumulate_grad_batches={TRAIN_ACCUMULATE_GRAD_BATCHES}",
+)
+TRAIN_MEMORY_OVERRIDES = (
+    f"loader.batch_size={TRAIN_MICRO_BATCH_SIZE}",
+    f"+trainer.accumulate_grad_batches={TRAIN_ACCUMULATE_GRAD_BATCHES}",
 )
 
 
@@ -197,6 +206,7 @@ def submit(args, root: Path, manifest: dict) -> None:
     train_cmd = adapter_prefix(args, "train", args.tag_seed) + [
         "--config-name=intact_goal", f"output_model_name={run_name}",
         f"seed={args.train_seed}",
+        *TRAIN_MEMORY_OVERRIDES,
     ]
     train_shell = "\n".join(
         exports + [command_text(train_cmd), "echo INTACT_TAGGED_TRAIN_COMPLETE"]
@@ -288,7 +298,13 @@ def main() -> None:
     print(json.dumps(checks, indent=2))
     print("\nPLANNED CONTRACT")
     print(f"  upstream: INTACT {PINNED_COMMIT}")
-    print("  train: official intact_goal, seed 3072, 1 epoch, Math SDPA")
+    print(
+        "  train: official intact_goal, seed 3072, 1 epoch, Math SDPA; "
+        f"micro-batch {TRAIN_MICRO_BATCH_SIZE} x accumulation "
+        f"{TRAIN_ACCUMULATE_GRAD_BATCHES} = optimizer effective batch "
+        f"{OFFICIAL_GLOBAL_BATCH_SIZE}; SIGReg sees micro-batches of "
+        f"{TRAIN_MICRO_BATCH_SIZE}"
+    )
     print("  nuisance: exact 5x5 episode-constant PixelTag before preprocessing")
     print(f"  eval: {EVAL_MODES}, seeds={args.eval_seeds}, episodes={args.num_eval}")
     print("  dataset: one clean Lance copy; no duplicated tagged dataset")
@@ -329,6 +345,20 @@ def main() -> None:
         "upstream_commit": PINNED_COMMIT,
         "adapter": str(ADAPTER.relative_to(REPO)),
         "training_seed": args.train_seed,
+        "batch_contract": {
+            "official_global_batch_size": OFFICIAL_GLOBAL_BATCH_SIZE,
+            "micro_batch_size": TRAIN_MICRO_BATCH_SIZE,
+            "accumulate_grad_batches": TRAIN_ACCUMULATE_GRAD_BATCHES,
+            "optimizer_effective_batch_size": (
+                TRAIN_MICRO_BATCH_SIZE * TRAIN_ACCUMULATE_GRAD_BATCHES
+            ),
+            "batch_dependent_loss_size": TRAIN_MICRO_BATCH_SIZE,
+            "equivalence_scope": (
+                "samples per optimizer step are preserved; SIGReg is computed "
+                "per micro-batch and is therefore not numerically identical"
+            ),
+            "reason": "44.39 GiB GPU cannot fit the official micro-batch of 256",
+        },
         "tag": {"mode": "video", "size": 5, "seed": args.tag_seed},
         "evaluation_modes": EVAL_MODES,
         "evaluation_seeds": args.eval_seeds,
