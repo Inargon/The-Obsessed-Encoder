@@ -55,3 +55,15 @@ def test_all_arms_preserve_full_method_and_tagged_data() -> None:
         assert "+loss.control.inverse_weight=1.0" in joined
         assert "+loss.control.cycle_weight=0.5" in joined
         assert "+loss.control.reachability_weight=0.1" in joined
+
+
+def test_clean_arms_remove_only_tag_specific_protocol() -> None:
+    for arm in horizon_ablation_campaign.ARMS:
+        _, spec = horizon_ablation_campaign.arm_spec(arm, condition="clean")
+        joined = " ".join(spec["overrides"])
+        assert "data.dataset.name=pusht_expert_train.h5" in joined
+        assert "pixel_tag" not in joined
+        assert not spec.get("eval_overrides")
+        assert "pair_suites" not in spec
+        assert "+loss.pred_weight=1.0" in joined
+        assert "+loss.aligned_gradient_routing.enabled=true" in joined

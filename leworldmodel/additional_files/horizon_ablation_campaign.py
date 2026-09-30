@@ -66,16 +66,31 @@ def _replace_override(overrides: list[str], key: str, value: object) -> None:
     overrides[matches[0]] = replacement
 
 
-def arm_spec(arm: str) -> tuple[dict, dict]:
-    try:
-        from .run_control import load_control_configs
-    except ImportError:
-        from run_control import load_control_configs
-
+def arm_spec(arm: str, condition: str = "tagged") -> tuple[dict, dict]:
     if arm not in ARMS:
         raise ValueError(f"Unknown arm: {arm}")
-    config = load_control_configs()
-    spec = copy.deepcopy(config["arms"]["control_aligned_pred1"])
+    if condition == "tagged":
+        try:
+            from .run_control import load_control_configs
+        except ImportError:
+            from run_control import load_control_configs
+
+        config = load_control_configs()
+        spec = copy.deepcopy(config["arms"]["control_aligned_pred1"])
+    elif condition == "clean":
+        try:
+            from .run_pusht_clean_ours_matched import (
+                load_pusht_clean_ours_matched_configs,
+            )
+        except ImportError:
+            from run_pusht_clean_ours_matched import (
+                load_pusht_clean_ours_matched_configs,
+            )
+
+        config = load_pusht_clean_ours_matched_configs()
+        spec = copy.deepcopy(next(iter(config["arms"].values())))
+    else:
+        raise ValueError(f"Unknown condition: {condition}")
     overrides = list(spec["overrides"])
     _replace_override(overrides, "max_horizon", ARMS[arm]["max_horizon"])
     _replace_override(
@@ -85,13 +100,15 @@ def arm_spec(arm: str) -> tuple[dict, dict]:
     return config, spec
 
 
-def train(root: Path, arm: str, seed: int, smoke: bool) -> None:
+def train(
+    root: Path, arm: str, seed: int, smoke: bool, condition: str = "tagged"
+) -> None:
     try:
         from . import run as base_runner
     except ImportError:
         import run as base_runner
 
-    config, spec = arm_spec(arm)
+    config, spec = arm_spec(arm, condition)
     phase = "smoke" if smoke else "full"
     prefix = f"{root.name}_{phase}_{arm}"
     run_name = f"{prefix}_seed{seed}"
@@ -157,7 +174,9 @@ def main() -> None:
     parser.add_argument("--partition", default="gpu_shared")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-concurrent", type=int, default=2)
-    parser.add_argument("--worker", choices=("smoke", "train"))
+    parser.add_argument("--condition", choices=("tagged", "clean"), default="tagged")
+    parser.add_argument("--combined", action="store_true")
+    parser.add_argument("--worker", choices=("smoke", "train", "combined"))
     parser.add_argument("--campaign", type=Path)
     parser.add_argument("--arm-index", type=int)
     args = parser.parse_args()
@@ -176,7 +195,17 @@ def main() -> None:
                 "Source/config changed since submission; submit a fresh campaign"
             )
         arm = arms[args.arm_index]
-        train(args.campaign, arm, args.seed, smoke=args.worker == "smoke")
+        if args.worker == "combined":
+            train(args.campaign, arm, args.seed, smoke=True, condition=args.condition)
+            train(args.campaign, arm, args.seed, smoke=False, condition=args.condition)
+        else:
+            train(
+                args.campaign,
+                arm,
+                args.seed,
+                smoke=args.worker == "smoke",
+                condition=args.condition,
+            )
         print(f"HORIZON_{args.worker.upper()}_{arm.upper()}_COMPLETE", flush=True)
         return
 
@@ -184,7 +213,7 @@ def main() -> None:
         parser.error("seed must be nonnegative")
     if args.max_concurrent < 1:
         parser.error("max-concurrent must be positive")
-    print("Matched tagged-PushT temporal-horizon ablation:")
+    print(f"Matched {args.condition} PushT temporal-horizon ablation:")
     for index, (arm, spec) in enumerate(ARMS.items()):
         print(f"  [{index}] {arm}: {spec['description']}")
     if not args.submit:
@@ -205,12 +234,14 @@ def main() -> None:
         check=True,
     )
     root = REPO / "leworldmodel/results" / (
-        "horizon-ablation-" + datetime.now().strftime("%Y%m%d-%H%M%S")
+        f"horizon-{args.condition}-ablation-"
+        + datetime.now().strftime("%Y%m%d-%H%M%S")
     )
     root.mkdir(parents=True, exist_ok=False)
     manifest = {
         "source_sha256": source_digest(),
         "training_seed": args.seed,
+        "condition": args.condition,
         "arms": ARMS,
         "array_order": list(ARMS),
         "comparison": (
@@ -225,7 +256,8 @@ def main() -> None:
     def submit(worker: str, dependency: str | None = None) -> str:
         command = (
             f"{shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve()))} "
-            f"--worker {worker} --campaign {shlex.quote(str(root))} "
+            f"--worker {worker} --condition {args.condition} "
+            f"--campaign {shlex.quote(str(root))} "
             f"--arm-index $SLURM_ARRAY_TASK_ID --seed {args.seed}"
         )
         batch = [
@@ -238,7 +270,7 @@ def main() -> None:
             "--gres=gpu:1",
             "--cpus-per-task=12",
             "--mem=64G",
-            "--time=00:30:00" if worker == "smoke" else "--time=20:00:00",
+            "--time=00:30:00" if worker == "smoke" else "--time=20:30:00",
             f"--job-name=oe-horizon-{worker}",
             "--chdir",
             str(REPO),
@@ -256,12 +288,17 @@ def main() -> None:
             raise RuntimeError(f"Unexpected sbatch response: {response!r}")
         return response
 
-    smoke_job = submit("smoke")
-    train_job = submit("train", smoke_job)
-    manifest["jobs"] = {"smoke_array": smoke_job, "train_array": train_job}
+    if args.combined:
+        combined_job = submit("combined")
+        manifest["jobs"] = {"combined_array": combined_job}
+        print(f"COMBINED_ARRAY_JOB={combined_job}")
+    else:
+        smoke_job = submit("smoke")
+        train_job = submit("train", smoke_job)
+        manifest["jobs"] = {"smoke_array": smoke_job, "train_array": train_job}
+        print(f"SMOKE_ARRAY_JOB={smoke_job}")
+        print(f"TRAIN_ARRAY_JOB={train_job}")
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    print(f"SMOKE_ARRAY_JOB={smoke_job}")
-    print(f"TRAIN_ARRAY_JOB={train_job}")
     print(f"CAMPAIGN={root}")
 
 
