@@ -8,11 +8,27 @@ from additional_files.intact_tagged_adapter import (
     install_evaluation_tag,
     install_training_tag,
 )
-from additional_files.intact_tagged_campaign import EVAL_MODES, validate_clean_audit
+from additional_files.intact_tagged_campaign import (
+    EVAL_MODES,
+    adapter_prefix,
+    validate_clean_audit,
+)
 
 
 def test_official_lewm_evaluation_mode_names():
     assert EVAL_MODES == ("direct", "cem")
+
+
+def test_adapter_global_flags_precede_remainder_phase(tmp_path):
+    args = SimpleNamespace(
+        intact_python=tmp_path / "python",
+        intact_root=tmp_path / "INTACT-JEPA",
+    )
+    command = adapter_prefix(args, "train", 7)
+    phase_index = command.index("train")
+    assert command.index("--intact-root") < phase_index
+    assert command.index("--tag-seed") < phase_index
+    assert command[phase_index + 1] == "--"
 
 
 def test_clean_audit_is_content_and_checkpoint_hash_gated(tmp_path):

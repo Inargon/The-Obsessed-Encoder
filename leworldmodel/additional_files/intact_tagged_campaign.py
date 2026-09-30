@@ -138,11 +138,14 @@ def common_env(args) -> dict[str, str]:
 
 def adapter_prefix(args, phase: str, tag_seed) -> list[str]:
     return [
-        str(args.intact_python), str(ADAPTER), phase,
+        # argparse.REMAINDER begins after the positional phase. Global adapter
+        # flags must therefore precede ``train``/``eval`` or they are forwarded
+        # to Hydra and the required --intact-root appears to be missing.
+        str(args.intact_python), str(ADAPTER),
         "--intact-root", str(args.intact_root),
         "--expected-commit", PINNED_COMMIT,
         "--tag-mode", "video", "--tag-size", "5",
-        "--tag-seed", str(tag_seed), "--",
+        "--tag-seed", str(tag_seed), phase, "--",
     ]
 
 
@@ -204,6 +207,16 @@ def submit(args, root: Path, manifest: dict) -> None:
     manifest["run_name"] = run_name
     save()
 
+    if args.defer_eval:
+        manifest["jobs"]["eval"] = None
+        manifest["evaluation_submission"] = "deferred_by_request"
+        save()
+        print(f"SMOKE_JOB={smoke}")
+        print(f"TRAIN_JOB={training}")
+        print("EVAL_ARRAY_JOB=DEFERRED")
+        print(f"CAMPAIGN={root}")
+        return
+
     cells = [(mode, seed) for mode in EVAL_MODES for seed in args.eval_seeds]
     cell_lines = [f"{mode} {seed}" for mode, seed in cells]
     eval_prefix = command_text(adapter_prefix(args, "eval", "TAG_SEED"))
@@ -259,6 +272,10 @@ def main() -> None:
     parser.add_argument("--eval-seeds", default="0,1,42")
     parser.add_argument("--num-eval", type=int, default=100)
     parser.add_argument("--max-eval-concurrent", type=int, default=2)
+    parser.add_argument(
+        "--defer-eval", action="store_true",
+        help="submit only smoke and training; add the evaluation array later",
+    )
     args = parser.parse_args()
     args.eval_seeds = tuple(int(value) for value in args.eval_seeds.split(","))
 
