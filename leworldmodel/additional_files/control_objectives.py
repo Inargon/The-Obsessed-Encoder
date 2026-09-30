@@ -45,6 +45,7 @@ class ControlObjective(nn.Module):
         hidden_dim: int = 256,
         inverse_weight: float = 1.0,
         cycle_weight: float = 0.5,
+        cycle_scope: str = "joint",
         reachability_weight: float = 0.1,
         action_plan_weight: float = 0.0,
         mask_keep_prob: float = 0.5,
@@ -73,6 +74,8 @@ class ControlObjective(nn.Module):
             raise ValueError("reach_aggregation must be 'pair' or 'horizon'")
         if action_plan_weight < 0.0:
             raise ValueError("action_plan_weight must be non-negative")
+        if cycle_scope not in {"joint", "predictor_only"}:
+            raise ValueError("cycle_scope must be 'joint' or 'predictor_only'")
         if inverse_target not in {"mean", "sequence"}:
             raise ValueError("inverse_target must be 'mean' or 'sequence'")
         if mode == "factorized_reachability" and not 0 < context_dim < embed_dim:
@@ -84,6 +87,7 @@ class ControlObjective(nn.Module):
         self.max_horizon = max_horizon
         self.inverse_weight = inverse_weight
         self.cycle_weight = cycle_weight
+        self.cycle_scope = cycle_scope
         self.reachability_weight = reachability_weight
         self.action_plan_weight = action_plan_weight
         self.mask_keep_prob = mask_keep_prob
@@ -158,6 +162,31 @@ class ControlObjective(nn.Module):
         return start * mask, end * mask
 
     @staticmethod
+    def _frozen_inverse_forward(
+        module: nn.Sequential, inputs: torch.Tensor
+    ) -> torch.Tensor:
+        """Run ``module`` with detached weights while retaining input gradients.
+
+        Predictor-only Cycle treats the real-transition IDM as a certificate:
+        the predicted endpoint must decode to the conditioning action, but the
+        certificate itself must not adapt to predicted endpoints.  A functional
+        call makes that boundary explicit without changing the module's global
+        ``requires_grad`` state (the same IDM is still trained by real pairs).
+        """
+        first, activation, second = module
+        hidden = F.linear(
+            inputs,
+            first.weight.detach(),
+            None if first.bias is None else first.bias.detach(),
+        )
+        hidden = activation(hidden)
+        return F.linear(
+            hidden,
+            second.weight.detach(),
+            None if second.bias is None else second.bias.detach(),
+        )
+
+    @staticmethod
     def _action_chunk(actions: torch.Tensor, horizon: int) -> torch.Tensor:
         length = actions.size(1) - horizon
         return torch.cat(
@@ -225,6 +254,8 @@ class ControlObjective(nn.Module):
         if max_horizon < 1:
             return {
                 "control_loss": zero,
+                "representation_control_loss": zero,
+                "interface_cycle_loss": zero,
                 "inverse_dynamics_loss": zero,
                 "action_cycle_loss": zero,
                 "reachability_loss": zero,
@@ -388,10 +419,16 @@ class ControlObjective(nn.Module):
             if length:
                 start = control_emb[:, :length]
                 predicted_end = control_pred[:, :length]
+                if self.cycle_scope == "predictor_only":
+                    start = start.detach()
                 start, predicted_end = self._paired_mask(start, predicted_end)
-                reconstructed = self.inverse_heads["1"](
-                    torch.cat((start, predicted_end), dim=-1)
-                )
+                cycle_inputs = torch.cat((start, predicted_end), dim=-1)
+                if self.cycle_scope == "predictor_only":
+                    reconstructed = self._frozen_inverse_forward(
+                        self.inverse_heads["1"], cycle_inputs
+                    )
+                else:
+                    reconstructed = self.inverse_heads["1"](cycle_inputs)
                 cycle_loss = F.smooth_l1_loss(reconstructed, actions[:, :length])
 
         if not reach_terms:
@@ -446,27 +483,35 @@ class ControlObjective(nn.Module):
                 reachability_loss = torch.stack(direct_terms).mean()
                 reachability_accuracy = torch.stack(direct_correct).mean().detach()
 
-        total = self.inverse_weight * inverse_loss
+        representation_total = self.inverse_weight * inverse_loss
         if self.mode == "masked_reachability":
-            total = (
-                total
-                + self.cycle_weight * cycle_loss
+            representation_total = (
+                representation_total
                 + self.reachability_weight * reachability_loss
             )
         elif self.mode == "direct_reachability":
-            total = total + self.reachability_weight * reachability_loss
+            representation_total = (
+                representation_total
+                + self.reachability_weight * reachability_loss
+            )
         elif self.mode == "factorized_reachability":
-            total = (
-                total
+            representation_total = (
+                representation_total
                 + self.reachability_weight * reachability_loss
                 + self.context_weight * context_consistency
                 + self.static_leak_weight * dynamic_static
                 + self.dynamic_variance_weight * dynamic_variance
                 + self.dynamic_covariance_weight * dynamic_covariance
             )
-        total = total + self.action_plan_weight * action_plan_loss
+        representation_total = (
+            representation_total + self.action_plan_weight * action_plan_loss
+        )
+        interface_cycle = self.cycle_weight * cycle_loss
+        total = representation_total + interface_cycle
         return {
             "control_loss": total,
+            "representation_control_loss": representation_total,
+            "interface_cycle_loss": interface_cycle,
             "inverse_dynamics_loss": inverse_loss,
             "action_cycle_loss": cycle_loss,
             "reachability_loss": reachability_loss,

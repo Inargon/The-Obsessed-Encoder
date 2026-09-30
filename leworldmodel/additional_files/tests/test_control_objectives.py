@@ -75,6 +75,60 @@ def test_masked_reachability_trains_encoder_predictor_and_heads():
     )
 
 
+def test_predictor_only_cycle_does_not_train_inverse_head():
+    emb, actions, pred_emb = _inputs()
+    objective = ControlObjective(
+        embed_dim=12,
+        action_dim=2,
+        mode="masked_reachability",
+        max_horizon=3,
+        cycle_scope="predictor_only",
+    )
+
+    cycle_loss = objective(emb, actions, pred_emb)["action_cycle_loss"]
+    cycle_loss.backward()
+
+    assert pred_emb.grad is not None and pred_emb.grad.abs().sum() > 0
+    assert emb.grad is None
+    assert all(parameter.grad is None for parameter in objective.parameters())
+
+
+def test_predictor_only_cycle_is_separated_from_representation_control_loss():
+    emb, actions, pred_emb = _inputs()
+    objective = ControlObjective(
+        embed_dim=12,
+        action_dim=2,
+        mode="masked_reachability",
+        max_horizon=3,
+        cycle_weight=0.5,
+        cycle_scope="predictor_only",
+    )
+
+    terms = objective(emb, actions, pred_emb)
+
+    assert torch.allclose(
+        terms["control_loss"],
+        terms["representation_control_loss"] + terms["interface_cycle_loss"],
+    )
+    assert torch.allclose(
+        terms["interface_cycle_loss"], 0.5 * terms["action_cycle_loss"]
+    )
+
+
+def test_control_objective_rejects_unknown_cycle_scope():
+    try:
+        ControlObjective(
+            embed_dim=12,
+            action_dim=2,
+            mode="masked_reachability",
+            cycle_scope="unknown",
+        )
+    except ValueError as error:
+        assert "cycle_scope" in str(error)
+    else:
+        raise AssertionError("unknown Cycle gradient scope was accepted")
+
+
 def test_masked_reachability_reports_action_shuffle_diagnostics():
     emb, actions, pred_emb = _inputs()
     objective = ControlObjective(

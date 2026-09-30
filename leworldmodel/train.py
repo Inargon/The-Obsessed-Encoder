@@ -117,7 +117,16 @@ def lejepa_forward(self, batch, stage, cfg):
     # Control-sufficiency experiments attach their trainable heads inside the
     # world model so the existing ``model_opt`` optimizer owns their parameters.
     if hasattr(self.model, "control_objective"):
-        control = self.model.control_objective(emb, batch["action"], pred_emb)
+        control_objective = self.model.control_objective
+        control_pred_emb = pred_emb
+        if control_objective.cycle_scope == "predictor_only":
+            # Cycle is an executable-interface constraint, not representation
+            # supervision. Re-run the predictor from a detached visual latent
+            # so Cycle updates predictor-private parameters (and its action
+            # conditioning path) without rewriting the encoder. The objective
+            # separately freezes the real-transition IDM for this Cycle call.
+            control_pred_emb = self.model.predict(ctx_emb.detach(), ctx_act)
+        control = control_objective(emb, batch["action"], control_pred_emb)
         output.update(control)
         output["loss"] = output["loss"] + output["control_loss"]
 
@@ -164,6 +173,12 @@ def lejepa_forward(self, batch, stage, cfg):
             )
         if route_enabled and route_active:
             pred_component = pred_weight * output["pred_loss"]
+            control_guide = output["control_loss"]
+            if control_objective.cycle_scope == "predictor_only":
+                # The router is certified only by evidence measured on real
+                # encoded transitions. The predictor-generated Cycle signal is
+                # optimized privately and cannot define its own admission axis.
+                control_guide = output["representation_control_loss"]
             route_kwargs = OmegaConf.to_container(route_cfg, resolve=True)
             route_kwargs.pop("enabled", None)
             strategy = route_kwargs.pop("strategy", "aligned")
@@ -173,11 +188,11 @@ def lejepa_forward(self, batch, stage, cfg):
                         **route_kwargs
                     )
                 surrogate, diagnostics = self.decision_subspace_router(
-                    pred_component, output["control_loss"], emb
+                    pred_component, control_guide, emb
                 )
             elif strategy == "aligned":
                 surrogate, diagnostics = control_aligned_prediction_surrogate(
-                    pred_component, output["control_loss"], emb, **route_kwargs
+                    pred_component, control_guide, emb, **route_kwargs
                 )
             else:
                 raise ValueError(f"unknown routing strategy {strategy!r}")
