@@ -115,7 +115,11 @@ def train(root: Path, benchmark: str, seed: int, smoke: bool) -> None:
     if checkpoint_dir.exists() or run_dir.exists():
         raise RuntimeError(f"Refusing to overwrite existing run: {name}")
 
-    options = "++checkpoint.every_n_steps=5000 ++eval.every_n_steps=2000"
+    # Environment construction is deliberately deferred to the fixed post-hoc
+    # evaluation job. Some gpu_shared nodes can train normally but do not expose
+    # a usable EGL runtime; an online callback would otherwise kill a healthy
+    # training run when it first evaluates at step 2000.
+    options = "++checkpoint.every_n_steps=5000 ++eval.every_n_steps=1000000000"
     if smoke:
         options = (
             "++trainer.max_steps=2 "
@@ -200,6 +204,11 @@ def main() -> None:
     parser.add_argument("--eval-nodelist", default="SPGL-1-1")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-concurrent", type=int, default=2)
+    parser.add_argument(
+        "--benchmarks",
+        default=",".join(BENCHMARKS),
+        help="Comma-separated subset of tagged_pusht,clean_reacher",
+    )
     parser.add_argument("--worker", choices=("smoke", "train", "eval"))
     parser.add_argument("--campaign", type=Path)
     parser.add_argument("--benchmark", choices=BENCHMARKS)
@@ -232,6 +241,11 @@ def main() -> None:
     print("  tagged PushT: test whether IR's shortcut robustness is retained")
     print("  clean Reacher: test whether the predicted-latent interface is repaired")
     print("  matched Full differs only in Cycle gradient scope")
+    benchmarks = list(
+        dict.fromkeys(value.strip() for value in args.benchmarks.split(",") if value.strip())
+    )
+    if not benchmarks or any(value not in BENCHMARKS for value in benchmarks):
+        parser.error(f"benchmarks must be a nonempty subset of {BENCHMARKS}")
     if not args.submit:
         print("PLAN ONLY. Pass --submit on the cluster to launch jobs.")
         return
@@ -261,7 +275,7 @@ def main() -> None:
         "training_seed": args.seed,
         "evaluation_seed": 42,
         "evaluation_episodes": 50,
-        "benchmarks": list(BENCHMARKS),
+        "benchmarks": benchmarks,
         "variant": "Inverse+Reach guide; predictor-only Cycle through frozen IDM",
         "jobs": {},
     }
@@ -291,7 +305,7 @@ def main() -> None:
         shell = "\n".join(
             (
                 "set -euo pipefail",
-                f"benchmarks=({' '.join(BENCHMARKS)})",
+                f"benchmarks=({' '.join(benchmarks)})",
                 'benchmark="${benchmarks[$SLURM_ARRAY_TASK_ID]}"',
                 worker_command,
             )
@@ -301,7 +315,7 @@ def main() -> None:
             "--parsable",
             "--partition",
             partition,
-            f"--array=0-{len(BENCHMARKS) - 1}%{args.max_concurrent}",
+            f"--array=0-{len(benchmarks) - 1}%{args.max_concurrent}",
             "--gres=gpu:1",
             "--cpus-per-task=12" if worker != "eval" else "--cpus-per-task=8",
             "--mem=64G" if worker != "eval" else "--mem=48G",
