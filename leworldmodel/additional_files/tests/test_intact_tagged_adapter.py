@@ -7,6 +7,7 @@ import torch
 from additional_files.intact_tagged_adapter import (
     install_evaluation_tag,
     install_training_tag,
+    split_hydra_invocation,
 )
 from additional_files.intact_tagged_campaign import (
     EVAL_MODES,
@@ -29,6 +30,33 @@ def test_adapter_global_flags_precede_remainder_phase(tmp_path):
     assert command.index("--intact-root") < phase_index
     assert command.index("--tag-seed") < phase_index
     assert command[phase_index + 1] == "--"
+
+
+def test_adapter_splits_hydra_config_name_from_overrides():
+    config_name, overrides = split_hydra_invocation(
+        "train",
+        [
+            "--config-name=intact_goal",
+            "output_model_name=tagged",
+            "trainer.max_epochs=1",
+        ],
+    )
+    assert config_name == "intact_goal"
+    assert overrides == [
+        "output_model_name=tagged",
+        "trainer.max_epochs=1",
+    ]
+
+
+def test_adapter_uses_phase_default_config_name():
+    assert split_hydra_invocation("train", ["seed=3"]) == (
+        "intact_goal",
+        ["seed=3"],
+    )
+    assert split_hydra_invocation("eval", ["seed=3"]) == (
+        "pusht",
+        ["seed=3"],
+    )
 
 
 def test_clean_audit_is_content_and_checkpoint_hash_gated(tmp_path):

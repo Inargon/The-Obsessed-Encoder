@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from typing import Sequence
 
 
 PINNED_INTACT_COMMIT = "653ee22266a34a74efca21b0b03dfc1fd6fa37ff"
@@ -82,6 +83,59 @@ def install_evaluation_tag(module, *, mode: str, size: int, seed: int) -> None:
     module.img_transform = tagged_img_transform
 
 
+def split_hydra_invocation(
+    phase: str, overrides: Sequence[str]
+) -> tuple[str, list[str]]:
+    """Separate Hydra's config-name switch from configuration overrides."""
+    config_name = "intact_goal" if phase == "train" else "pusht"
+    remaining: list[str] = []
+    index = 0
+    while index < len(overrides):
+        value = overrides[index]
+        if value.startswith("--config-name="):
+            config_name = value.split("=", 1)[1]
+        elif value == "--config-name":
+            index += 1
+            if index >= len(overrides):
+                raise ValueError("--config-name requires a value")
+            config_name = overrides[index]
+        elif value.startswith("--"):
+            raise ValueError(f"Unsupported Hydra launcher flag: {value}")
+        else:
+            remaining.append(value)
+        index += 1
+    if not config_name:
+        raise ValueError("Hydra config name must not be empty")
+    return config_name, remaining
+
+
+def run_upstream(root: Path, phase: str, upstream, overrides: Sequence[str]) -> None:
+    """Compose from the upstream absolute config directory and run its task.
+
+    Loading ``train.py`` or ``eval.py`` as an adapter module changes the module
+    name Hydra uses to resolve ``./config/...``.  Calling the decorated entry
+    point would therefore reinterpret the filesystem-relative path as a Python
+    package path.  Absolute config composition preserves the upstream config
+    tree while the ``__wrapped__`` call retains the patched module globals.
+    """
+    import hydra
+
+    config_name, config_overrides = split_hydra_invocation(phase, overrides)
+    config_dir = (root / "config" / phase).resolve()
+    if not config_dir.is_dir():
+        raise FileNotFoundError(f"Hydra config directory not found: {config_dir}")
+    task = getattr(upstream.run, "__wrapped__", None)
+    if task is None:
+        raise RuntimeError("Upstream Hydra entry point has no __wrapped__ task")
+    with hydra.initialize_config_dir(
+        version_base=None,
+        config_dir=str(config_dir),
+        job_name=f"intact_tagged_{phase}",
+    ):
+        cfg = hydra.compose(config_name=config_name, overrides=config_overrides)
+        task(cfg)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("phase", choices=("train", "eval"))
@@ -120,8 +174,7 @@ def main() -> None:
         f"size={args.tag_size} seed={args.tag_seed}",
         flush=True,
     )
-    sys.argv = [str(root / f"{args.phase}.py"), *overrides]
-    upstream.run()
+    run_upstream(root, args.phase, upstream, overrides)
 
 
 if __name__ == "__main__":
