@@ -59,6 +59,12 @@ HISTORICAL_OVERRIDES = (
     "seed=42",
     "solver.n_steps=30",
 )
+HISTORICAL_EVAL_PRELUDE = (
+    "import runpy, sys; "
+    "import stable_worldmodel.wm.utils; "
+    "script = sys.argv.pop(1); "
+    "runpy.run_path(script, run_name='__main__')"
+)
 
 
 def quote(parts: list[object]) -> str:
@@ -102,6 +108,22 @@ print(json.dumps({'rows': len(dataset), 'cache_dir': sys.argv[2]}))
     if rows <= 0:
         raise RuntimeError("historical Reacher dataset is empty")
     return rows
+
+
+def preflight_historical_model_loader(python: Path) -> None:
+    subprocess.run(
+        [
+            str(python),
+            "-c",
+            (
+                "import stable_worldmodel as swm; "
+                "import stable_worldmodel.wm.utils; "
+                "assert hasattr(swm.wm, 'utils'); "
+                "print('HISTORICAL_MODEL_LOADER_IMPORT_PASS')"
+            ),
+        ],
+        check=True,
+    )
 
 
 def compare_reference(actual: Path, reference: Path) -> None:
@@ -160,6 +182,8 @@ def worker(args) -> None:
         output_name = f"{args.arm}-historical-reacher.txt"
         command = [
             str(args.historical_python),
+            "-c",
+            HISTORICAL_EVAL_PRELUDE,
             str(args.historical_root / "eval.py"),
             "--config-name=reacher",
             f"policy={destination}",
@@ -301,6 +325,7 @@ def main() -> None:
         args.historical_root,
         historical_dataset_dir(args.stablewm_home),
     )
+    preflight_historical_model_loader(args.historical_python)
     manifest["historical_dataset_preflight_rows"] = dataset_rows
     print(f"HISTORICAL_REACHER_DATASET_PREFLIGHT_PASS rows={dataset_rows}")
 

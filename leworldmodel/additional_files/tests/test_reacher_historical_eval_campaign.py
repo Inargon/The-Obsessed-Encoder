@@ -2,6 +2,7 @@ import pytest
 
 from additional_files.reacher_historical_eval_campaign import (
     ARMS,
+    HISTORICAL_EVAL_PRELUDE,
     HISTORICAL_OVERRIDES,
     historical_dataset_dir,
     parse_success_rate,
@@ -32,6 +33,11 @@ def test_historical_overrides_preserve_action_only_cache():
 
 def test_historical_dataset_root_includes_datasets_component(tmp_path):
     assert historical_dataset_dir(tmp_path) == tmp_path / "datasets"
+
+
+def test_historical_eval_prelude_imports_lazy_model_loader():
+    assert "import stable_worldmodel.wm.utils" in HISTORICAL_EVAL_PRELUDE
+    assert "runpy.run_path" in HISTORICAL_EVAL_PRELUDE
 
 
 @pytest.mark.parametrize(
