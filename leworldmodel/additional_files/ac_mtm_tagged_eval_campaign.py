@@ -22,13 +22,7 @@ from additional_files.ac_mtm_tagged_adapter import PINNED_AC_MTM_COMMIT
 
 ADAPTER = HERE / "ac_mtm_tagged_adapter.py"
 DEFAULT_AC_ROOT = Path("/grp01/ids_compcog/song/code/AC-MTM")
-DEFAULT_PYTHON = Path("/grp01/ids_compcog/song/envs/lewm-repro-py310/bin/python")
-DEFAULT_SWM_SOURCE = Path(
-    "/grp01/ids_compcog/song/code/stable-worldmodel-repro-20260514"
-)
-DEFAULT_RUNTIME_OVERLAY = Path(
-    "/grp01/ids_compcog/song/envs/acmtm-eval-overlay-v2-py310"
-)
+DEFAULT_PYTHON = Path("/grp01/ids_compcog/song/envs/obsessed-encoder-py312/bin/python")
 DEFAULT_STABLEWM_HOME = Path("/grp01/ids_compcog/song/swm")
 DEFAULT_TRAINING_RUN = (
     "ac-mtm-tagged-pusht-20261001-164536_s3072"
@@ -50,49 +44,35 @@ def policy_path(stablewm_home: Path, training_run: str) -> Path:
     )
 
 
-def runtime_env(source_root: Path, overlay: Path) -> dict[str, str]:
+def runtime_env() -> dict[str, str]:
     env = dict(os.environ)
     existing = env.get("PYTHONPATH")
-    entries = [
-        str(source_root),
-        str(overlay),
-        str(REPO / "leworldmodel"),
-        str(REPO),
-    ]
+    entries = [str(REPO / "leworldmodel"), str(REPO)]
     if existing:
         entries.append(existing)
     env["PYTHONPATH"] = os.pathsep.join(entries)
     return env
 
 
-def preflight_official_runtime(
-    python: Path, source_root: Path, overlay: Path
-) -> dict:
+def preflight_evaluation_runtime(python: Path) -> dict:
     code = """
 import inspect
 import json
 import sys
 from importlib.metadata import version
 import stable_worldmodel as swm
-import pygame
-import pymunk
-import shapely
 import gymnasium as gym
 from stable_worldmodel.envs.pusht.env import PushT
 record = {
     'stable_worldmodel_file': swm.__file__,
     'stable-worldmodel': version('stable-worldmodel'),
     'stable-pretraining': version('stable-pretraining'),
-    'pygame': pygame.version.ver,
-    'pymunk': pymunk.version,
-    'shapely': version('shapely'),
+    'has_lance_dataset': hasattr(swm.data, 'LanceDataset'),
     'pusht_parameters': sorted(inspect.signature(PushT.__init__).parameters),
 }
-assert swm.__file__.startswith(sys.argv[1])
-assert record['stable-worldmodel'] == '0.0.6'
-assert record['stable-pretraining'] == '0.1.6'
-assert int(pymunk.version.split('.')[0]) >= 7
-assert hasattr(pymunk.Space, 'on_collision')
+assert record['stable-worldmodel'] == '0.1.1'
+assert record['stable-pretraining'] == '0.1.8'
+assert record['has_lance_dataset']
 assert 'history_size' not in record['pusht_parameters']
 assert 'frame_skip' not in record['pusht_parameters']
 env = gym.make('swm/PushT-v1', render_mode='rgb_array')
@@ -101,8 +81,8 @@ env.close()
 print(json.dumps(record))
 """
     output = subprocess.check_output(
-        [str(python), "-c", code, str(source_root)],
-        env=runtime_env(source_root, overlay),
+        [str(python), "-c", code],
+        env=runtime_env(),
         text=True,
     )
     return json.loads(output.strip().splitlines()[-1])
@@ -114,10 +94,6 @@ def main() -> None:
     parser.add_argument("--confirm-run", action="store_true")
     parser.add_argument("--ac-root", type=Path, default=DEFAULT_AC_ROOT)
     parser.add_argument("--python", type=Path, default=DEFAULT_PYTHON)
-    parser.add_argument("--swm-source", type=Path, default=DEFAULT_SWM_SOURCE)
-    parser.add_argument(
-        "--runtime-overlay", type=Path, default=DEFAULT_RUNTIME_OVERLAY
-    )
     parser.add_argument("--stablewm-home", type=Path, default=DEFAULT_STABLEWM_HOME)
     parser.add_argument("--training-run", default=DEFAULT_TRAINING_RUN)
     parser.add_argument("--partition", default="gpu_shared")
@@ -130,12 +106,6 @@ def main() -> None:
         "python": args.python,
         "AC-MTM eval": args.ac_root / "eval.py",
         "adapter": ADAPTER,
-        "official stable-worldmodel source": (
-            args.swm_source / "stable_worldmodel/wm/utils.py"
-        ),
-        "pygame runtime overlay": args.runtime_overlay / "pygame/__init__.py",
-        "pymunk runtime overlay": args.runtime_overlay / "pymunk/__init__.py",
-        "shapely runtime overlay": args.runtime_overlay / "shapely/__init__.py",
         "epoch-10 evaluation checkpoint": checkpoint,
     }
     missing = [label for label, path in required.items() if not path.is_file()]
@@ -159,11 +129,9 @@ def main() -> None:
         "policy": str(policy),
         "checkpoint": str(checkpoint),
         "checkpoint_size": checkpoint.stat().st_size if checkpoint.is_file() else None,
-        "checkpoint_training_runtime": "modern Python 3.12 stack",
+        "checkpoint_training_runtime": "Python 3.12, SWM 0.1.1, SPT 0.1.8",
         "evaluation_runtime": {
             "python": str(args.python),
-            "stable_worldmodel_source": str(args.swm_source),
-            "runtime_overlay": str(args.runtime_overlay),
         },
         "tag": {"mode": "video", "size": 5},
         "evaluation_seeds": list(EVALUATION_SEEDS),
@@ -190,11 +158,9 @@ def main() -> None:
     if commit != PINNED_AC_MTM_COMMIT or dirty:
         parser.error("pinned clean AC-MTM checkout preflight failed")
     manifest["evaluation_runtime"].update(
-        preflight_official_runtime(
-            args.python, args.swm_source, args.runtime_overlay
-        )
+        preflight_evaluation_runtime(args.python)
     )
-    print("AC_MTM_OFFICIAL_EVAL_RUNTIME_PREFLIGHT_PASS")
+    print("AC_MTM_EVAL_RUNTIME_PREFLIGHT_PASS")
 
     root = REPO / "leworldmodel/results" / (
         "ac-mtm-tagged-eval-" + datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -203,7 +169,7 @@ def main() -> None:
 
     exports = [
         "set -euo pipefail",
-        f"export PYTHONPATH={shlex.quote(str(args.swm_source))}:{shlex.quote(str(args.runtime_overlay))}:{shlex.quote(str(REPO / 'leworldmodel'))}:{shlex.quote(str(REPO))}",
+        f"export PYTHONPATH={shlex.quote(str(REPO / 'leworldmodel'))}:{shlex.quote(str(REPO))}",
         f"export STABLEWM_HOME={shlex.quote(str(args.stablewm_home))}",
         f"export XDG_CACHE_HOME={shlex.quote(str(args.stablewm_home / 'cache'))}",
         f"export HF_HOME={shlex.quote(str(args.stablewm_home / 'cache/huggingface'))}",

@@ -25,10 +25,8 @@ def test_policy_uses_absolute_epoch_ten_object_checkpoint_stem(tmp_path):
     )
 
 
-def test_official_source_precedes_project_paths(monkeypatch, tmp_path):
+def test_project_paths_precede_existing_pythonpath(monkeypatch):
     monkeypatch.setenv("PYTHONPATH", "/existing")
-    overlay = tmp_path / "overlay"
-    entries = runtime_env(tmp_path, overlay)["PYTHONPATH"].split(os.pathsep)
-    assert entries[0] == str(tmp_path)
-    assert entries[1] == str(overlay)
+    entries = runtime_env()["PYTHONPATH"].split(os.pathsep)
+    assert entries[0].endswith("leworldmodel")
     assert entries[-1] == "/existing"
