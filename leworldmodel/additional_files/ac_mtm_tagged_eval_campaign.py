@@ -27,7 +27,7 @@ DEFAULT_SWM_SOURCE = Path(
     "/grp01/ids_compcog/song/code/stable-worldmodel-repro-20260514"
 )
 DEFAULT_RUNTIME_OVERLAY = Path(
-    "/grp01/ids_compcog/song/envs/acmtm-eval-overlay-py310"
+    "/grp01/ids_compcog/song/envs/acmtm-eval-overlay-v2-py310"
 )
 DEFAULT_STABLEWM_HOME = Path("/grp01/ids_compcog/song/swm")
 DEFAULT_TRAINING_RUN = (
