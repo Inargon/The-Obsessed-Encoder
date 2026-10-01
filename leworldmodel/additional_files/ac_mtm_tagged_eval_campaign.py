@@ -91,6 +91,7 @@ record = {
 assert swm.__file__.startswith(sys.argv[1])
 assert record['stable-worldmodel'] == '0.0.6'
 assert record['stable-pretraining'] == '0.1.6'
+assert int(record['pymunk'].split('.')[0]) >= 7
 assert 'history_size' not in record['pusht_parameters']
 assert 'frame_skip' not in record['pusht_parameters']
 env = gym.make('swm/PushT-v1', render_mode='rgb_array')
