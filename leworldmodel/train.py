@@ -1,6 +1,7 @@
 import os
 from functools import partial
 from pathlib import Path
+from types import MethodType
 
 import hydra
 import lightning as pl
@@ -20,6 +21,11 @@ from additional_files.allocation_regularizers import AllocationRegularizer
 from additional_files.control_objectives import ControlObjective
 from additional_files.delta_jepa import LatentDifferenceActionDecoder
 from additional_files.aligned_gradient_routing import control_aligned_prediction_surrogate
+from additional_files.bloop_gradient_routing import (
+    ParameterSpaceBloop,
+    apply_bloop_after_manual_backward,
+    representation_named_parameters,
+)
 from additional_files.decision_subspace_routing import DecisionSubspaceRouter
 from additional_files.component_gradient_diagnostics import (
     measure_component_gradient_geometry,
@@ -140,6 +146,13 @@ def lejepa_forward(self, batch, stage, cfg):
 
         route_cfg = cfg.loss.get("aligned_gradient_routing")
         route_enabled = route_cfg and route_cfg.get("enabled", True)
+        bloop_cfg = cfg.loss.get("bloop")
+        bloop_enabled = bloop_cfg and bloop_cfg.get("enabled", True)
+        if route_enabled and bloop_enabled:
+            raise ValueError(
+                "aligned_gradient_routing and parameter-space Bloop are "
+                "mutually exclusive"
+            )
         route_active = stage == "fit" and self.training and torch.is_grad_enabled()
         component_diag_cfg = cfg.loss.get("component_gradient_diagnostics")
         component_diag_enabled = (
@@ -206,6 +219,24 @@ def lejepa_forward(self, batch, stage, cfg):
                 raise ValueError(f"unknown routing strategy {strategy!r}")
             output["loss"] = output["loss"] + surrogate
             output.update(diagnostics)
+        if bloop_enabled and route_active:
+            if not hasattr(self, "bloop_router"):
+                raise RuntimeError(
+                    "loss.bloop is enabled but the training module has no router"
+                )
+            pred_component = pred_weight * output["pred_loss"]
+            control_guide = output["control_loss"]
+            if control_objective.cycle_scope == "predictor_only":
+                # Bloop protects only evidence measured on real transitions.
+                # Predictor-only Cycle remains a private interface objective.
+                control_guide = output["representation_control_loss"]
+            output.update(
+                self.bloop_router.prepare(
+                    main_loss=control_guide,
+                    auxiliary_loss=pred_component,
+                    named_parameters=representation_named_parameters(self.model),
+                )
+            )
 
     # Matched Delta-JEPA baseline.  This branch intentionally bypasses the
     # control router: it supervises latent displacements directly and is a
@@ -232,6 +263,11 @@ def lejepa_forward(self, batch, stage, cfg):
             "prediction_reference_retained_fraction",
             "prediction_norm_match_error",
             "prediction_direction_cosine_to_aligned",
+            "bloop_projection_ratio",
+            "bloop_auxiliary_retained_fraction",
+            "bloop_main_ema_cosine",
+            "bloop_projected_ema_cosine",
+            "bloop_control_ema_norm_ratio",
             "decision_subspace_rank",
             "decision_subspace_prediction_coverage",
             "decision_subspace_control_coverage",
@@ -350,6 +386,23 @@ def run(cfg):
         allocation_kwargs.pop("enabled", None)
         module_kwargs["allocation_reg"] = AllocationRegularizer(**allocation_kwargs)
 
+    bloop_cfg = cfg.loss.get("bloop")
+    bloop_enabled = bloop_cfg and bloop_cfg.get("enabled", True)
+    if bloop_enabled:
+        if not hasattr(spt.Module, "after_manual_backward"):
+            raise RuntimeError(
+                "parameter-space Bloop requires stable-pretraining's "
+                "after_manual_backward hook"
+            )
+        if not control_cfg or not control_cfg.get("enabled", True):
+            raise ValueError("parameter-space Bloop requires loss.control")
+        bloop_kwargs = OmegaConf.to_container(bloop_cfg, resolve=True)
+        bloop_kwargs.pop("enabled", None)
+        module_kwargs["bloop_router"] = ParameterSpaceBloop(
+            representation_named_parameters(world_model),
+            **bloop_kwargs,
+        )
+
     world_model = spt.Module(
         model = world_model,
         sigreg = SIGReg(**cfg.loss.sigreg.kwargs),
@@ -357,6 +410,13 @@ def run(cfg):
         optim=optimizers,
         **module_kwargs,
     )
+    if bloop_enabled:
+        # stable-pretraining calls this hook after its joint backward and
+        # before clipping/optimizer.step, which is exactly where Bloop must
+        # replace the auxiliary contribution on representation parameters.
+        world_model.after_manual_backward = MethodType(
+            apply_bloop_after_manual_backward, world_model
+        )
 
     ##########################
     ##       training       ##

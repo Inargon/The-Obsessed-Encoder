@@ -25,6 +25,7 @@ import sys
 REPO = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 BENCHMARKS = ("tagged_pusht", "clean_reacher")
+ROUTINGS = ("aligned", "conflict_only", "bloop")
 
 
 def source_digest() -> str:
@@ -62,7 +63,23 @@ def environment() -> dict[str, str]:
     return env
 
 
-def benchmark_spec(benchmark: str) -> tuple[dict, dict]:
+def preflight_bloop_runtime() -> None:
+    """Fail locally before submission if the installed trainer lacks the hook."""
+    import stable_pretraining as spt
+
+    if not hasattr(spt.Module, "after_manual_backward"):
+        raise RuntimeError(
+            "Bloop requires stable-pretraining.Module.after_manual_backward; "
+            "the selected Python environment is incompatible"
+        )
+    print("BLOOP_AFTER_MANUAL_BACKWARD_PREFLIGHT_PASS", flush=True)
+
+
+def benchmark_spec(
+    benchmark: str, routing: str = "aligned"
+) -> tuple[dict, dict]:
+    if routing not in ROUTINGS:
+        raise ValueError(f"unknown routing {routing!r}")
     if benchmark == "tagged_pusht":
         try:
             from .run_control import load_control_configs
@@ -87,17 +104,49 @@ def benchmark_spec(benchmark: str) -> tuple[dict, dict]:
         raise RuntimeError(f"{benchmark} is not the matched Full Cycle arm")
     if not any("aligned_gradient_routing.enabled=true" in value for value in overrides):
         raise RuntimeError(f"{benchmark} does not enable the matched router")
+    if routing == "conflict_only":
+        overrides.append(
+            "+loss.aligned_gradient_routing.routing_mode=conflict_only"
+        )
+    elif routing == "bloop":
+        # Bloop operates on encoder/projector parameter gradients after the
+        # joint backward pass, so the embedding-space router must be absent.
+        overrides = [
+            value
+            for value in overrides
+            if not value.startswith("+loss.aligned_gradient_routing.")
+        ]
+        overrides.extend(
+            (
+                "+loss.bloop.enabled=true",
+                "+loss.bloop.decay=0.9",
+                "+loss.bloop.auxiliary_weight=1.0",
+            )
+        )
     overrides.append("+loss.control.cycle_scope=predictor_only")
     spec["overrides"] = overrides
     return config, spec
 
 
-def run_name(root: Path, benchmark: str, seed: int, smoke: bool) -> str:
+def run_name(
+    root: Path,
+    benchmark: str,
+    seed: int,
+    smoke: bool,
+    routing: str = "aligned",
+) -> str:
     phase = "smoke" if smoke else "full"
-    return f"{root.name}_{benchmark}_interface_cycle_{phase}_seed{seed}"
+    variant = "interface_cycle" if routing == "aligned" else f"{routing}_cycle"
+    return f"{root.name}_{benchmark}_{variant}_{phase}_seed{seed}"
 
 
-def train(root: Path, benchmark: str, seed: int, smoke: bool) -> None:
+def train(
+    root: Path,
+    benchmark: str,
+    seed: int,
+    smoke: bool,
+    routing: str = "aligned",
+) -> None:
     try:
         from . import run as base_runner
     except ImportError:
@@ -108,8 +157,8 @@ def train(root: Path, benchmark: str, seed: int, smoke: bool) -> None:
     for name in ("SPT_CACHE_DIR", "XDG_CACHE_HOME", "TMPDIR"):
         Path(env[name]).mkdir(parents=True, exist_ok=True)
 
-    config, spec = benchmark_spec(benchmark)
-    name = run_name(root, benchmark, seed, smoke)
+    config, spec = benchmark_spec(benchmark, routing)
+    name = run_name(root, benchmark, seed, smoke, routing)
     checkpoint_dir = Path(env["STABLEWM_HOME"]) / "checkpoints" / name
     run_dir = root / name
     if checkpoint_dir.exists() or run_dir.exists():
@@ -156,6 +205,7 @@ def train(root: Path, benchmark: str, seed: int, smoke: bool) -> None:
             {
                 "benchmark": benchmark,
                 "variant": "predictor-only Cycle",
+                "routing": routing,
                 "seed": seed,
                 "checkpoint": str(expected),
             },
@@ -165,9 +215,14 @@ def train(root: Path, benchmark: str, seed: int, smoke: bool) -> None:
     )
 
 
-def evaluate(root: Path, benchmark: str, seed: int) -> None:
+def evaluate(
+    root: Path,
+    benchmark: str,
+    seed: int,
+    routing: str = "aligned",
+) -> None:
     env = environment()
-    name = run_name(root, benchmark, seed, smoke=False)
+    name = run_name(root, benchmark, seed, smoke=False, routing=routing)
     output = root / f"{benchmark}-epoch10-eval-seed42.json"
     script = (
         HERE / "evaluate_pusht_checkpoint.py"
@@ -204,6 +259,15 @@ def main() -> None:
     parser.add_argument("--eval-nodelist", default="SPGL-1-1")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-concurrent", type=int, default=2)
+    parser.add_argument("--routing", choices=ROUTINGS, default="aligned")
+    parser.add_argument(
+        "--defer-eval",
+        action="store_true",
+        help=(
+            "Submit smoke and training only. Use this for Reacher so the "
+            "checkpoint can be evaluated with the locked historical protocol."
+        ),
+    )
     parser.add_argument(
         "--benchmarks",
         default=",".join(BENCHMARKS),
@@ -222,13 +286,14 @@ def main() -> None:
         if source_digest() != manifest["source_sha256"]:
             raise RuntimeError("Source/config changed since submission; submit fresh")
         if args.worker == "eval":
-            evaluate(args.campaign, args.benchmark, args.seed)
+            evaluate(args.campaign, args.benchmark, args.seed, args.routing)
         else:
             train(
                 args.campaign,
                 args.benchmark,
                 args.seed,
                 smoke=args.worker == "smoke",
+                routing=args.routing,
             )
         print(
             f"INTERFACE_CYCLE_{args.worker.upper()}_COMPLETE "
@@ -238,6 +303,7 @@ def main() -> None:
         return
 
     print("Predictor-only Cycle campaign:")
+    print(f"  routing: {args.routing}")
     print("  tagged PushT: test whether IR's shortcut robustness is retained")
     print("  clean Reacher: test whether the predicted-latent interface is repaired")
     print("  matched Full differs only in Cycle gradient scope")
@@ -251,6 +317,8 @@ def main() -> None:
         return
     if args.seed < 0 or args.max_concurrent < 1:
         parser.error("seed must be nonnegative and max-concurrent positive")
+    if args.routing == "bloop":
+        preflight_bloop_runtime()
 
     subprocess.run(
         [
@@ -260,6 +328,7 @@ def main() -> None:
             "-q",
             str(HERE / "tests/test_control_objectives.py"),
             str(HERE / "tests/test_interface_cycle_campaign.py"),
+            str(HERE / "tests/test_bloop_gradient_routing.py"),
         ],
         cwd=REPO,
         env=environment(),
@@ -277,6 +346,10 @@ def main() -> None:
         "evaluation_episodes": 50,
         "benchmarks": benchmarks,
         "variant": "Inverse+Reach guide; predictor-only Cycle through frozen IDM",
+        "routing": args.routing,
+        "evaluation_submission": (
+            "deferred_by_request" if args.defer_eval else "afterok_train"
+        ),
         "jobs": {},
     }
 
@@ -302,6 +375,7 @@ def main() -> None:
             ]
         )
         worker_command += f' --benchmark "$benchmark" --seed {args.seed}'
+        worker_command += f" --routing {args.routing}"
         shell = "\n".join(
             (
                 "set -euo pipefail",
@@ -320,7 +394,13 @@ def main() -> None:
             "--cpus-per-task=12" if worker != "eval" else "--cpus-per-task=8",
             "--mem=64G" if worker != "eval" else "--mem=48G",
             "--time=00:30:00" if worker == "smoke" else (
-                "--time=20:00:00" if worker == "train" else "--time=01:00:00"
+                (
+                    "--time=36:00:00"
+                    if args.routing == "bloop"
+                    else "--time=20:00:00"
+                )
+                if worker == "train"
+                else "--time=01:00:00"
             ),
             f"--job-name=oe-ifcycle-{worker}",
             "--chdir",
@@ -347,12 +427,14 @@ def main() -> None:
     save()
     smoke = submit_array("smoke", args.partition)
     training = submit_array("train", args.partition, smoke)
-    evaluation = submit_array(
-        "eval", args.eval_partition, training, args.eval_nodelist
-    )
+    evaluation = None
+    if not args.defer_eval:
+        evaluation = submit_array(
+            "eval", args.eval_partition, training, args.eval_nodelist
+        )
     print(f"SMOKE_ARRAY_JOB={smoke}")
     print(f"TRAIN_ARRAY_JOB={training}")
-    print(f"EVAL_ARRAY_JOB={evaluation}")
+    print(f"EVAL_ARRAY_JOB={evaluation or 'DEFERRED'}")
     print(f"CAMPAIGN={root}")
 
 
