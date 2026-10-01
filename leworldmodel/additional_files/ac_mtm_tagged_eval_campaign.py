@@ -84,14 +84,15 @@ record = {
     'stable-worldmodel': version('stable-worldmodel'),
     'stable-pretraining': version('stable-pretraining'),
     'pygame': pygame.version.ver,
-    'pymunk': version('pymunk'),
+    'pymunk': pymunk.version,
     'shapely': version('shapely'),
     'pusht_parameters': sorted(inspect.signature(PushT.__init__).parameters),
 }
 assert swm.__file__.startswith(sys.argv[1])
 assert record['stable-worldmodel'] == '0.0.6'
 assert record['stable-pretraining'] == '0.1.6'
-assert int(record['pymunk'].split('.')[0]) >= 7
+assert int(pymunk.version.split('.')[0]) >= 7
+assert hasattr(pymunk.Space, 'on_collision')
 assert 'history_size' not in record['pusht_parameters']
 assert 'frame_skip' not in record['pusht_parameters']
 env = gym.make('swm/PushT-v1', render_mode='rgb_array')
