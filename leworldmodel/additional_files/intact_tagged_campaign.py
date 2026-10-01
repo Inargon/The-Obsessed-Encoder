@@ -25,10 +25,9 @@ DEFAULT_INTACT_ROOT = Path("/grp01/ids_compcog/song/code/INTACT-JEPA")
 DEFAULT_INTACT_PYTHON = Path("/grp01/ids_compcog/song/envs/intact-py310/bin/python")
 DEFAULT_DATA_ROOT = Path("/grp01/ids_compcog/song/swm")
 DEFAULT_OUTPUT_ROOT = Path("/grp01/ids_compcog/song/intact")
-# Official LeWM evaluation calls the actor-disabled broad-search mode ``cem``.
-# ``pure_cem`` is the corresponding CLEAR-LeWM adapter spelling and is not a
-# valid solver/config name for INTACT's native eval.py entrypoint.
-EVAL_MODES = ("direct", "cem")
+# ``solver=cem`` is retained upstream as a backward-compatible alias, while
+# the evaluation contract and runtime audit use the canonical ``pure_cem``.
+EVAL_MODES = ("direct", "pure_cem")
 OFFICIAL_GLOBAL_BATCH_SIZE = 256
 TRAIN_MICRO_BATCH_SIZE = 128
 TRAIN_ACCUMULATE_GRAD_BATCHES = 2

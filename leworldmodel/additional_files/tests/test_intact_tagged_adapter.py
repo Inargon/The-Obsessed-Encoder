@@ -22,7 +22,7 @@ from additional_files.intact_tagged_campaign import (
 
 
 def test_official_lewm_evaluation_mode_names():
-    assert EVAL_MODES == ("direct", "cem")
+    assert EVAL_MODES == ("direct", "pure_cem")
 
 
 def test_single_process_smoke_disables_prefetching():
