@@ -34,10 +34,12 @@ def quote(parts: list[object]) -> str:
     return shlex.join(str(value) for value in parts)
 
 
-def policy_name(training_run: str) -> str:
+def policy_path(stablewm_home: Path, training_run: str) -> Path:
     return (
-        f"baselines/{training_run}/"
-        "lewm_masked_action_nce_epoch_10"
+        stablewm_home
+        / "baselines"
+        / training_run
+        / "lewm_masked_action_nce_epoch_10"
     )
 
 
@@ -53,8 +55,8 @@ def main() -> None:
     parser.add_argument("--max-concurrent", type=int, default=2)
     args = parser.parse_args()
 
-    policy = policy_name(args.training_run)
-    checkpoint = args.stablewm_home / f"{policy}_object.ckpt"
+    policy = policy_path(args.stablewm_home, args.training_run)
+    checkpoint = Path(f"{policy}_object.ckpt")
     required = {
         "python": args.python,
         "AC-MTM eval": args.ac_root / "eval.py",
@@ -79,7 +81,7 @@ def main() -> None:
         "upstream_dirty": bool(dirty),
         "training_seed": 3072,
         "training_run": args.training_run,
-        "policy": policy,
+        "policy": str(policy),
         "checkpoint": str(checkpoint),
         "checkpoint_size": checkpoint.stat().st_size if checkpoint.is_file() else None,
         "tag": {"mode": "video", "size": 5},
