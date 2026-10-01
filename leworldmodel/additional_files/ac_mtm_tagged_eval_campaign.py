@@ -26,6 +26,9 @@ DEFAULT_PYTHON = Path("/grp01/ids_compcog/song/envs/lewm-repro-py310/bin/python"
 DEFAULT_SWM_SOURCE = Path(
     "/grp01/ids_compcog/song/code/stable-worldmodel-repro-20260514"
 )
+DEFAULT_RUNTIME_OVERLAY = Path(
+    "/grp01/ids_compcog/song/envs/acmtm-eval-overlay-py310"
+)
 DEFAULT_STABLEWM_HOME = Path("/grp01/ids_compcog/song/swm")
 DEFAULT_TRAINING_RUN = (
     "ac-mtm-tagged-pusht-20261001-164536_s3072"
@@ -46,28 +49,37 @@ def policy_path(stablewm_home: Path, training_run: str) -> Path:
     )
 
 
-def runtime_env(source_root: Path) -> dict[str, str]:
+def runtime_env(source_root: Path, overlay: Path) -> dict[str, str]:
     env = dict(os.environ)
     existing = env.get("PYTHONPATH")
-    entries = [str(source_root), str(REPO / "leworldmodel"), str(REPO)]
+    entries = [
+        str(source_root),
+        str(overlay),
+        str(REPO / "leworldmodel"),
+        str(REPO),
+    ]
     if existing:
         entries.append(existing)
     env["PYTHONPATH"] = os.pathsep.join(entries)
     return env
 
 
-def preflight_official_runtime(python: Path, source_root: Path) -> dict:
+def preflight_official_runtime(
+    python: Path, source_root: Path, overlay: Path
+) -> dict:
     code = """
 import inspect
 import json
 import sys
 from importlib.metadata import version
 import stable_worldmodel as swm
+import pygame
 from stable_worldmodel.envs.pusht.env import PushT
 record = {
     'stable_worldmodel_file': swm.__file__,
     'stable-worldmodel': version('stable-worldmodel'),
     'stable-pretraining': version('stable-pretraining'),
+    'pygame': pygame.version.ver,
     'pusht_parameters': sorted(inspect.signature(PushT.__init__).parameters),
 }
 assert swm.__file__.startswith(sys.argv[1])
@@ -78,7 +90,7 @@ print(json.dumps(record))
 """
     output = subprocess.check_output(
         [str(python), "-c", code, str(source_root)],
-        env=runtime_env(source_root),
+        env=runtime_env(source_root, overlay),
         text=True,
     )
     return json.loads(output.strip().splitlines()[-1])
@@ -91,6 +103,9 @@ def main() -> None:
     parser.add_argument("--ac-root", type=Path, default=DEFAULT_AC_ROOT)
     parser.add_argument("--python", type=Path, default=DEFAULT_PYTHON)
     parser.add_argument("--swm-source", type=Path, default=DEFAULT_SWM_SOURCE)
+    parser.add_argument(
+        "--runtime-overlay", type=Path, default=DEFAULT_RUNTIME_OVERLAY
+    )
     parser.add_argument("--stablewm-home", type=Path, default=DEFAULT_STABLEWM_HOME)
     parser.add_argument("--training-run", default=DEFAULT_TRAINING_RUN)
     parser.add_argument("--partition", default="gpu_shared")
@@ -106,6 +121,7 @@ def main() -> None:
         "official stable-worldmodel source": (
             args.swm_source / "stable_worldmodel/wm/utils.py"
         ),
+        "pygame runtime overlay": args.runtime_overlay / "pygame/__init__.py",
         "epoch-10 evaluation checkpoint": checkpoint,
     }
     missing = [label for label, path in required.items() if not path.is_file()]
@@ -133,6 +149,7 @@ def main() -> None:
         "evaluation_runtime": {
             "python": str(args.python),
             "stable_worldmodel_source": str(args.swm_source),
+            "runtime_overlay": str(args.runtime_overlay),
         },
         "tag": {"mode": "video", "size": 5},
         "evaluation_seeds": list(EVALUATION_SEEDS),
@@ -152,7 +169,9 @@ def main() -> None:
     if commit != PINNED_AC_MTM_COMMIT or dirty:
         parser.error("pinned clean AC-MTM checkout preflight failed")
     manifest["evaluation_runtime"].update(
-        preflight_official_runtime(args.python, args.swm_source)
+        preflight_official_runtime(
+            args.python, args.swm_source, args.runtime_overlay
+        )
     )
     print("AC_MTM_OFFICIAL_EVAL_RUNTIME_PREFLIGHT_PASS")
 
@@ -163,7 +182,7 @@ def main() -> None:
 
     exports = [
         "set -euo pipefail",
-        f"export PYTHONPATH={shlex.quote(str(args.swm_source))}:{shlex.quote(str(REPO / 'leworldmodel'))}:{shlex.quote(str(REPO))}",
+        f"export PYTHONPATH={shlex.quote(str(args.swm_source))}:{shlex.quote(str(args.runtime_overlay))}:{shlex.quote(str(REPO / 'leworldmodel'))}:{shlex.quote(str(REPO))}",
         f"export STABLEWM_HOME={shlex.quote(str(args.stablewm_home))}",
         f"export XDG_CACHE_HOME={shlex.quote(str(args.stablewm_home / 'cache'))}",
         f"export HF_HOME={shlex.quote(str(args.stablewm_home / 'cache/huggingface'))}",
