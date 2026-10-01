@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import shlex
 import subprocess
@@ -100,13 +101,25 @@ def main() -> None:
     if commit != PINNED_AC_MTM_COMMIT or dirty:
         parser.error("pinned clean AC-MTM checkout preflight failed")
 
+    test_env = dict(os.environ)
+    test_env["PYTHONPATH"] = os.pathsep.join(
+        filter(
+            None,
+            (
+                str(REPO / "leworldmodel"),
+                str(REPO),
+                test_env.get("PYTHONPATH"),
+            ),
+        )
+    )
     subprocess.run(
         [
             str(args.python), "-m", "pytest", "-q",
             str(HERE / "tests/test_pixel_tag.py"),
             str(HERE / "tests/test_ac_mtm_tagged_adapter.py"),
         ],
-        cwd=REPO,
+        cwd=REPO / "leworldmodel",
+        env=test_env,
         check=True,
     )
 
