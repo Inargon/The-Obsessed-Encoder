@@ -34,6 +34,7 @@ DEFAULT_TRAINING_RUN = (
     "ac-mtm-tagged-pusht-20261001-164536_s3072"
 )
 EVALUATION_SEEDS = (0, 1, 42)
+COMPATIBILITY_OVERRIDES = ("~world.history_size", "~world.frame_skip")
 
 
 def quote(parts: list[object]) -> str:
@@ -76,6 +77,7 @@ import stable_worldmodel as swm
 import pygame
 import pymunk
 import shapely
+import gymnasium as gym
 from stable_worldmodel.envs.pusht.env import PushT
 record = {
     'stable_worldmodel_file': swm.__file__,
@@ -89,7 +91,11 @@ record = {
 assert swm.__file__.startswith(sys.argv[1])
 assert record['stable-worldmodel'] == '0.0.6'
 assert record['stable-pretraining'] == '0.1.6'
-assert 'history_size' in record['pusht_parameters']
+assert 'history_size' not in record['pusht_parameters']
+assert 'frame_skip' not in record['pusht_parameters']
+env = gym.make('swm/PushT-v1', render_mode='rgb_array')
+env.reset(seed=0)
+env.close()
 print(json.dumps(record))
 """
     output = subprocess.check_output(
@@ -161,6 +167,13 @@ def main() -> None:
         "evaluation_seeds": list(EVALUATION_SEEDS),
         "evaluation_episodes_per_seed": 100,
         "evaluation_env_batch_size": 10,
+        "compatibility_overrides": {
+            "values": list(COMPATIBILITY_OVERRIDES),
+            "reason": (
+                "Both config values are one (no stacking/no extra skip), but "
+                "the pinned PushT constructor does not accept either keyword."
+            ),
+        },
         "missing": missing,
         "jobs": {},
     }
@@ -217,6 +230,7 @@ def main() -> None:
         "eval.env_batch_size=10",
         "output.save_video=false",
         'output.filename=ac-mtm-tagged-seed${eval_seed}.txt',
+        *COMPATIBILITY_OVERRIDES,
     ]
     command_line = quote(command).replace("'$eval_seed'", '"$eval_seed"')
     command_line = command_line.replace(
