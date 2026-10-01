@@ -22,7 +22,10 @@ from additional_files.ac_mtm_tagged_adapter import PINNED_AC_MTM_COMMIT
 
 ADAPTER = HERE / "ac_mtm_tagged_adapter.py"
 DEFAULT_AC_ROOT = Path("/grp01/ids_compcog/song/code/AC-MTM")
-DEFAULT_PYTHON = Path("/grp01/ids_compcog/song/envs/obsessed-encoder-py312/bin/python")
+DEFAULT_PYTHON = Path("/grp01/ids_compcog/song/envs/lewm-repro-py310/bin/python")
+DEFAULT_SWM_SOURCE = Path(
+    "/grp01/ids_compcog/song/code/stable-worldmodel-repro-20260514"
+)
 DEFAULT_STABLEWM_HOME = Path("/grp01/ids_compcog/song/swm")
 DEFAULT_TRAINING_RUN = (
     "ac-mtm-tagged-pusht-20261001-164536_s3072"
@@ -43,12 +46,51 @@ def policy_path(stablewm_home: Path, training_run: str) -> Path:
     )
 
 
+def runtime_env(source_root: Path) -> dict[str, str]:
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH")
+    entries = [str(source_root), str(REPO / "leworldmodel"), str(REPO)]
+    if existing:
+        entries.append(existing)
+    env["PYTHONPATH"] = os.pathsep.join(entries)
+    return env
+
+
+def preflight_official_runtime(python: Path, source_root: Path) -> dict:
+    code = """
+import inspect
+import json
+import sys
+from importlib.metadata import version
+import stable_worldmodel as swm
+from stable_worldmodel.envs.pusht.env import PushT
+record = {
+    'stable_worldmodel_file': swm.__file__,
+    'stable-worldmodel': version('stable-worldmodel'),
+    'stable-pretraining': version('stable-pretraining'),
+    'pusht_parameters': sorted(inspect.signature(PushT.__init__).parameters),
+}
+assert swm.__file__.startswith(sys.argv[1])
+assert record['stable-worldmodel'] == '0.0.6'
+assert record['stable-pretraining'] == '0.1.6'
+assert 'history_size' in record['pusht_parameters']
+print(json.dumps(record))
+"""
+    output = subprocess.check_output(
+        [str(python), "-c", code, str(source_root)],
+        env=runtime_env(source_root),
+        text=True,
+    )
+    return json.loads(output.strip().splitlines()[-1])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--submit", action="store_true")
     parser.add_argument("--confirm-run", action="store_true")
     parser.add_argument("--ac-root", type=Path, default=DEFAULT_AC_ROOT)
     parser.add_argument("--python", type=Path, default=DEFAULT_PYTHON)
+    parser.add_argument("--swm-source", type=Path, default=DEFAULT_SWM_SOURCE)
     parser.add_argument("--stablewm-home", type=Path, default=DEFAULT_STABLEWM_HOME)
     parser.add_argument("--training-run", default=DEFAULT_TRAINING_RUN)
     parser.add_argument("--partition", default="gpu_shared")
@@ -61,6 +103,9 @@ def main() -> None:
         "python": args.python,
         "AC-MTM eval": args.ac_root / "eval.py",
         "adapter": ADAPTER,
+        "official stable-worldmodel source": (
+            args.swm_source / "stable_worldmodel/wm/utils.py"
+        ),
         "epoch-10 evaluation checkpoint": checkpoint,
     }
     missing = [label for label, path in required.items() if not path.is_file()]
@@ -84,6 +129,11 @@ def main() -> None:
         "policy": str(policy),
         "checkpoint": str(checkpoint),
         "checkpoint_size": checkpoint.stat().st_size if checkpoint.is_file() else None,
+        "checkpoint_training_runtime": "modern Python 3.12 stack",
+        "evaluation_runtime": {
+            "python": str(args.python),
+            "stable_worldmodel_source": str(args.swm_source),
+        },
         "tag": {"mode": "video", "size": 5},
         "evaluation_seeds": list(EVALUATION_SEEDS),
         "evaluation_episodes_per_seed": 100,
@@ -101,6 +151,10 @@ def main() -> None:
         parser.error("missing: " + ", ".join(missing))
     if commit != PINNED_AC_MTM_COMMIT or dirty:
         parser.error("pinned clean AC-MTM checkout preflight failed")
+    manifest["evaluation_runtime"].update(
+        preflight_official_runtime(args.python, args.swm_source)
+    )
+    print("AC_MTM_OFFICIAL_EVAL_RUNTIME_PREFLIGHT_PASS")
 
     root = REPO / "leworldmodel/results" / (
         "ac-mtm-tagged-eval-" + datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -109,7 +163,7 @@ def main() -> None:
 
     exports = [
         "set -euo pipefail",
-        f"export PYTHONPATH={shlex.quote(str(REPO / 'leworldmodel'))}:{shlex.quote(str(REPO))}",
+        f"export PYTHONPATH={shlex.quote(str(args.swm_source))}:{shlex.quote(str(REPO / 'leworldmodel'))}:{shlex.quote(str(REPO))}",
         f"export STABLEWM_HOME={shlex.quote(str(args.stablewm_home))}",
         f"export XDG_CACHE_HOME={shlex.quote(str(args.stablewm_home / 'cache'))}",
         f"export HF_HOME={shlex.quote(str(args.stablewm_home / 'cache/huggingface'))}",

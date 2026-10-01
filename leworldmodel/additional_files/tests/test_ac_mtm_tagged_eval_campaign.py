@@ -1,6 +1,9 @@
+import os
+
 from additional_files.ac_mtm_tagged_eval_campaign import (
     EVALUATION_SEEDS,
     policy_path,
+    runtime_env,
 )
 
 
@@ -12,3 +15,10 @@ def test_policy_uses_absolute_epoch_ten_object_checkpoint_stem(tmp_path):
     assert policy_path(tmp_path, "run") == (
         tmp_path / "baselines/run/lewm_masked_action_nce_epoch_10"
     )
+
+
+def test_official_source_precedes_project_paths(monkeypatch, tmp_path):
+    monkeypatch.setenv("PYTHONPATH", "/existing")
+    entries = runtime_env(tmp_path)["PYTHONPATH"].split(os.pathsep)
+    assert entries[0] == str(tmp_path)
+    assert entries[-1] == "/existing"
