@@ -53,7 +53,7 @@ ARMS = {
 }
 
 HISTORICAL_OVERRIDES = (
-    "+cache_dir={stablewm_home}",
+    "+cache_dir={dataset_dir}",
     "eval.dataset_name=dmc/reacher_random",
     "dataset.keys_to_cache=[action]",
     "seed=42",
@@ -75,6 +75,33 @@ def parse_success_rate(text: str) -> float:
 
 def historical_dataset_dir(stablewm_home: Path) -> Path:
     return stablewm_home / "datasets"
+
+
+def preflight_historical_dataset(python: Path, root: Path, dataset_dir: Path) -> int:
+    """Open the dataset through the exact stable-worldmodel 0.0.6 eval path."""
+    code = """
+import json
+import sys
+from omegaconf import OmegaConf
+sys.path.insert(0, sys.argv[1])
+import eval as historical_eval
+cfg = OmegaConf.create({
+    'cache_dir': sys.argv[2],
+    'dataset': {'keys_to_cache': ['action']},
+})
+dataset = historical_eval.get_dataset(cfg, 'dmc/reacher_random')
+print(json.dumps({'rows': len(dataset), 'cache_dir': sys.argv[2]}))
+"""
+    output = subprocess.check_output(
+        [str(python), "-c", code, str(root), str(dataset_dir)],
+        cwd=root,
+        text=True,
+    )
+    record = json.loads(output.strip().splitlines()[-1])
+    rows = int(record["rows"])
+    if rows <= 0:
+        raise RuntimeError("historical Reacher dataset is empty")
+    return rows
 
 
 def compare_reference(actual: Path, reference: Path) -> None:
@@ -137,7 +164,7 @@ def worker(args) -> None:
             "--config-name=reacher",
             f"policy={destination}",
             *(
-                value.format(stablewm_home=args.stablewm_home)
+                value.format(dataset_dir=historical_dataset_dir(args.stablewm_home))
                 for value in HISTORICAL_OVERRIDES
             ),
             f"output.filename={output_name}",
@@ -248,7 +275,7 @@ def main() -> None:
         ),
         "config_name": "reacher",
         "overrides": [
-            value.format(stablewm_home=args.stablewm_home)
+            value.format(dataset_dir=historical_dataset_dir(args.stablewm_home))
             for value in HISTORICAL_OVERRIDES
         ],
         "arms": ARMS,
@@ -268,6 +295,14 @@ def main() -> None:
         parser.error("refusing to submit without --confirm-run")
     if missing:
         parser.error("missing: " + ", ".join(missing))
+
+    dataset_rows = preflight_historical_dataset(
+        args.historical_python,
+        args.historical_root,
+        historical_dataset_dir(args.stablewm_home),
+    )
+    manifest["historical_dataset_preflight_rows"] = dataset_rows
+    print(f"HISTORICAL_REACHER_DATASET_PREFLIGHT_PASS rows={dataset_rows}")
 
     subprocess.run(
         [

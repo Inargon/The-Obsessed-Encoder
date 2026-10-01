@@ -24,6 +24,7 @@ def test_campaign_has_three_regressions_and_one_new_arm():
 
 
 def test_historical_overrides_preserve_action_only_cache():
+    assert "+cache_dir={dataset_dir}" in HISTORICAL_OVERRIDES
     assert "dataset.keys_to_cache=[action]" in HISTORICAL_OVERRIDES
     assert "seed=42" in HISTORICAL_OVERRIDES
     assert "solver.n_steps=30" in HISTORICAL_OVERRIDES

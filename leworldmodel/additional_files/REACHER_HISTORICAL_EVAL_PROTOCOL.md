@@ -30,7 +30,7 @@ emits SHA-256 provenance.
 
 - config name: `reacher`
 - `policy=<absolute historical checkpoint>`
-- `+cache_dir=/grp01/ids_compcog/song/swm`
+- `+cache_dir=/grp01/ids_compcog/song/swm/datasets`
 - `eval.dataset_name=dmc/reacher_random`
 - `dataset.keys_to_cache=[action]`
 - `seed=42`
@@ -39,6 +39,12 @@ emits SHA-256 provenance.
 Resolved planning settings are 300 CEM samples, top-30 elites, horizon 5,
 receding horizon 5, action block 5, goal offset 25, evaluation budget 50, and
 50 episodes.
+
+The recovered Hydra metadata recorded the cache root as `.../swm`, but the
+historical `eval.py` passes `cfg.cache_dir` directly to `HDF5Dataset`. The old
+parent-level path no longer resolves. The campaign therefore pins the extant
+file-equivalent dataset directory `.../swm/datasets` and opens it through the
+historical loader before submitting any GPU job.
 
 ## Regression gate
 
