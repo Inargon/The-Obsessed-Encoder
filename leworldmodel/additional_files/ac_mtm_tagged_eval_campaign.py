@@ -74,12 +74,14 @@ import sys
 from importlib.metadata import version
 import stable_worldmodel as swm
 import pygame
+import pymunk
 from stable_worldmodel.envs.pusht.env import PushT
 record = {
     'stable_worldmodel_file': swm.__file__,
     'stable-worldmodel': version('stable-worldmodel'),
     'stable-pretraining': version('stable-pretraining'),
     'pygame': pygame.version.ver,
+    'pymunk': version('pymunk'),
     'pusht_parameters': sorted(inspect.signature(PushT.__init__).parameters),
 }
 assert swm.__file__.startswith(sys.argv[1])
@@ -122,6 +124,7 @@ def main() -> None:
             args.swm_source / "stable_worldmodel/wm/utils.py"
         ),
         "pygame runtime overlay": args.runtime_overlay / "pygame/__init__.py",
+        "pymunk runtime overlay": args.runtime_overlay / "pymunk/__init__.py",
         "epoch-10 evaluation checkpoint": checkpoint,
     }
     missing = [label for label, path in required.items() if not path.is_file()]
