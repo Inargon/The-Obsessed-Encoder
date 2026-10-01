@@ -7,7 +7,7 @@ from additional_files.reacher_historical_eval_campaign import (
     HISTORICAL_EVAL_PRELUDE,
     HISTORICAL_OVERRIDES,
     historical_env,
-    historical_dataset_dir,
+    historical_cache_root,
     parse_success_rate,
 )
 
@@ -28,14 +28,14 @@ def test_campaign_has_three_regressions_and_one_new_arm():
 
 
 def test_historical_overrides_preserve_action_only_cache():
-    assert "+cache_dir={dataset_dir}" in HISTORICAL_OVERRIDES
+    assert "+cache_dir={cache_root}" in HISTORICAL_OVERRIDES
     assert "dataset.keys_to_cache=[action]" in HISTORICAL_OVERRIDES
     assert "seed=42" in HISTORICAL_OVERRIDES
     assert "solver.n_steps=30" in HISTORICAL_OVERRIDES
 
 
-def test_historical_dataset_root_includes_datasets_component(tmp_path):
-    assert historical_dataset_dir(tmp_path) == tmp_path / "datasets"
+def test_historical_source_loader_receives_parent_cache_root(tmp_path):
+    assert historical_cache_root(tmp_path) == tmp_path
 
 
 def test_historical_eval_prelude_imports_lazy_model_loader():

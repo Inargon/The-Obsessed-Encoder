@@ -8,7 +8,7 @@ run `le-wm-repro-20260514/outputs/2026-09-23/23-10-51` on 2026-10-01.
 
 - Repository: `/grp01/ids_compcog/song/code/le-wm-repro-20260514`
 - Python: `/grp01/ids_compcog/song/envs/lewm-repro-py310/bin/python`
-- `LOCAL_DATASET_DIR=/grp01/ids_compcog/song/swm/datasets`
+- `LOCAL_DATASET_DIR=/grp01/ids_compcog/song/swm`
 - Python 3.10.21
 - stable-worldmodel 0.0.6
 - stable-pretraining 0.1.6
@@ -30,7 +30,7 @@ emits SHA-256 provenance.
 
 - config name: `reacher`
 - `policy=<absolute historical checkpoint>`
-- `+cache_dir=/grp01/ids_compcog/song/swm/datasets`
+- `+cache_dir=/grp01/ids_compcog/song/swm`
 - `eval.dataset_name=dmc/reacher_random`
 - `dataset.keys_to_cache=[action]`
 - `seed=42`
@@ -45,11 +45,11 @@ Resolved planning settings are 300 CEM samples, top-30 elites, horizon 5,
 receding horizon 5, action block 5, goal offset 25, evaluation budget 50, and
 50 episodes.
 
-The recovered Hydra metadata recorded the cache root as `.../swm`, but the
-historical `eval.py` passes `cfg.cache_dir` directly to `HDF5Dataset`. The old
-parent-level path no longer resolves. The campaign therefore pins the extant
-file-equivalent dataset directory `.../swm/datasets` and opens it through the
-historical loader before submitting any GPU job.
+The pinned source loader appends `datasets/` to `cfg.cache_dir`. Therefore the
+recovered Hydra value `.../swm` resolves to the extant file
+`.../swm/datasets/dmc/reacher_random.h5`. Passing `.../swm/datasets` would
+incorrectly construct `.../swm/datasets/datasets/...`; the campaign preflights
+the resolved dataset through the exact historical loader before submission.
 
 ## Regression gate
 

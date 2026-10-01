@@ -56,7 +56,7 @@ ARMS = {
 }
 
 HISTORICAL_OVERRIDES = (
-    "+cache_dir={dataset_dir}",
+    "+cache_dir={cache_root}",
     "eval.dataset_name=dmc/reacher_random",
     "dataset.keys_to_cache=[action]",
     "seed=42",
@@ -82,8 +82,8 @@ def parse_success_rate(text: str) -> float:
     return value / 100.0 if value > 1.0 else value
 
 
-def historical_dataset_dir(stablewm_home: Path) -> Path:
-    return stablewm_home / "datasets"
+def historical_cache_root(stablewm_home: Path) -> Path:
+    return stablewm_home
 
 
 def historical_env(source_root: Path) -> dict[str, str]:
@@ -220,18 +220,17 @@ def worker(args) -> None:
             "--config-name=reacher",
             f"policy={destination}",
             *(
-                value.format(dataset_dir=historical_dataset_dir(args.stablewm_home))
+                value.format(cache_root=historical_cache_root(args.stablewm_home))
                 for value in HISTORICAL_OVERRIDES
             ),
             f"output.filename={output_name}",
         ]
         env = historical_env(args.historical_swm_root)
         env["STABLEWM_HOME"] = str(args.stablewm_home)
-        # stable-worldmodel 0.0.6 interprets LOCAL_DATASET_DIR as the dataset
-        # directory itself (unlike STABLEWM_HOME, which is the cache root).
-        # The recovered job 91315 read
-        # ``<STABLEWM_HOME>/datasets/dmc/reacher_random.h5``.
-        env["LOCAL_DATASET_DIR"] = str(historical_dataset_dir(args.stablewm_home))
+        # The pinned source loader appends ``datasets`` to the cache root.
+        # The recovered job 91315 used ``.../swm`` and therefore read
+        # ``.../swm/datasets/dmc/reacher_random.h5``.
+        env["LOCAL_DATASET_DIR"] = str(historical_cache_root(args.stablewm_home))
         env["MUJOCO_GL"] = "egl"
         env.pop("PYOPENGL_PLATFORM", None)
         subprocess.run(command, cwd=args.historical_root, env=env, check=True)
@@ -340,7 +339,7 @@ def main() -> None:
             if (args.historical_swm_root / ".git").exists()
             else None
         ),
-        "local_dataset_dir": str(historical_dataset_dir(args.stablewm_home)),
+        "historical_cache_root": str(historical_cache_root(args.stablewm_home)),
         "historical_versions": (
             package_versions(args.historical_python)
             if args.historical_python.is_file()
@@ -348,7 +347,7 @@ def main() -> None:
         ),
         "config_name": "reacher",
         "overrides": [
-            value.format(dataset_dir=historical_dataset_dir(args.stablewm_home))
+            value.format(cache_root=historical_cache_root(args.stablewm_home))
             for value in HISTORICAL_OVERRIDES
         ],
         "arms": ARMS,
@@ -374,7 +373,7 @@ def main() -> None:
     dataset_rows = preflight_historical_dataset(
         args.historical_python,
         args.historical_root,
-        historical_dataset_dir(args.stablewm_home),
+        historical_cache_root(args.stablewm_home),
         args.historical_swm_root,
     )
     preflight_historical_model_loader(
