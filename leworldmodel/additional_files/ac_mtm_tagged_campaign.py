@@ -11,11 +11,13 @@ import shlex
 import subprocess
 import sys
 
+REPO = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(REPO / "leworldmodel"))
+
 from additional_files.ac_mtm_tagged_adapter import PINNED_AC_MTM_COMMIT
 
 
-REPO = Path(__file__).resolve().parents[2]
-HERE = Path(__file__).resolve().parent
 ADAPTER = HERE / "ac_mtm_tagged_adapter.py"
 DEFAULT_AC_ROOT = Path("/grp01/ids_compcog/song/code/AC-MTM")
 DEFAULT_PYTHON = Path("/grp01/ids_compcog/song/envs/obsessed-encoder-py312/bin/python")
