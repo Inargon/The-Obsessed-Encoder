@@ -8,6 +8,7 @@ run `le-wm-repro-20260514/outputs/2026-09-23/23-10-51` on 2026-10-01.
 
 - Repository: `/grp01/ids_compcog/song/code/le-wm-repro-20260514`
 - Python: `/grp01/ids_compcog/song/envs/lewm-repro-py310/bin/python`
+- `LOCAL_DATASET_DIR=/grp01/ids_compcog/song/swm/datasets`
 - Python 3.10.21
 - stable-worldmodel 0.0.6
 - stable-pretraining 0.1.6

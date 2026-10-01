@@ -3,6 +3,7 @@ import pytest
 from additional_files.reacher_historical_eval_campaign import (
     ARMS,
     HISTORICAL_OVERRIDES,
+    historical_dataset_dir,
     parse_success_rate,
 )
 
@@ -26,6 +27,10 @@ def test_historical_overrides_preserve_action_only_cache():
     assert "dataset.keys_to_cache=[action]" in HISTORICAL_OVERRIDES
     assert "seed=42" in HISTORICAL_OVERRIDES
     assert "solver.n_steps=30" in HISTORICAL_OVERRIDES
+
+
+def test_historical_dataset_root_includes_datasets_component(tmp_path):
+    assert historical_dataset_dir(tmp_path) == tmp_path / "datasets"
 
 
 @pytest.mark.parametrize(

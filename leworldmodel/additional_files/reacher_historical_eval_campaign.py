@@ -73,6 +73,10 @@ def parse_success_rate(text: str) -> float:
     return value / 100.0 if value > 1.0 else value
 
 
+def historical_dataset_dir(stablewm_home: Path) -> Path:
+    return stablewm_home / "datasets"
+
+
 def compare_reference(actual: Path, reference: Path) -> None:
     import torch
 
@@ -140,7 +144,11 @@ def worker(args) -> None:
         ]
         env = dict(os.environ)
         env["STABLEWM_HOME"] = str(args.stablewm_home)
-        env["LOCAL_DATASET_DIR"] = str(args.stablewm_home)
+        # stable-worldmodel 0.0.6 interprets LOCAL_DATASET_DIR as the dataset
+        # directory itself (unlike STABLEWM_HOME, which is the cache root).
+        # The recovered job 91315 read
+        # ``<STABLEWM_HOME>/datasets/dmc/reacher_random.h5``.
+        env["LOCAL_DATASET_DIR"] = str(historical_dataset_dir(args.stablewm_home))
         env["MUJOCO_GL"] = "egl"
         env.pop("PYOPENGL_PLATFORM", None)
         subprocess.run(command, cwd=args.historical_root, env=env, check=True)
@@ -232,6 +240,7 @@ def main() -> None:
         "protocol": "clean_reacher_historical_seed42",
         "historical_root": str(args.historical_root),
         "historical_python": str(args.historical_python),
+        "local_dataset_dir": str(historical_dataset_dir(args.stablewm_home)),
         "historical_versions": (
             package_versions(args.historical_python)
             if args.historical_python.is_file()
