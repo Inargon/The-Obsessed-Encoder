@@ -26,6 +26,9 @@ DEFAULT_HISTORICAL_ROOT = Path(
 DEFAULT_HISTORICAL_PYTHON = Path(
     "/grp01/ids_compcog/song/envs/lewm-repro-py310/bin/python"
 )
+DEFAULT_HISTORICAL_SWM_ROOT = Path(
+    "/grp01/ids_compcog/song/code/stable-worldmodel-repro-20260514"
+)
 
 ARMS = {
     "jepa": {
@@ -83,7 +86,32 @@ def historical_dataset_dir(stablewm_home: Path) -> Path:
     return stablewm_home / "datasets"
 
 
-def preflight_historical_dataset(python: Path, root: Path, dataset_dir: Path) -> int:
+def historical_env(source_root: Path) -> dict[str, str]:
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(source_root) + (
+        os.pathsep + existing if existing else ""
+    )
+    return env
+
+
+def git_revision(root: Path) -> str:
+    return subprocess.check_output(
+        ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
+    ).strip()
+
+
+def git_is_dirty(root: Path) -> bool:
+    return bool(
+        subprocess.check_output(
+            ["git", "-C", str(root), "status", "--porcelain"], text=True
+        ).strip()
+    )
+
+
+def preflight_historical_dataset(
+    python: Path, root: Path, dataset_dir: Path, source_root: Path
+) -> int:
     """Open the dataset through the exact stable-worldmodel 0.0.6 eval path."""
     code = """
 import json
@@ -101,6 +129,7 @@ print(json.dumps({'rows': len(dataset), 'cache_dir': sys.argv[2]}))
     output = subprocess.check_output(
         [str(python), "-c", code, str(root), str(dataset_dir)],
         cwd=root,
+        env=historical_env(source_root),
         text=True,
     )
     record = json.loads(output.strip().splitlines()[-1])
@@ -110,18 +139,21 @@ print(json.dumps({'rows': len(dataset), 'cache_dir': sys.argv[2]}))
     return rows
 
 
-def preflight_historical_model_loader(python: Path) -> None:
+def preflight_historical_model_loader(python: Path, source_root: Path) -> None:
     subprocess.run(
         [
             str(python),
             "-c",
             (
-                "import stable_worldmodel as swm; "
+                "import sys, stable_worldmodel as swm; "
                 "import stable_worldmodel.wm.utils; "
                 "assert hasattr(swm.wm, 'utils'); "
+                "assert swm.__file__.startswith(sys.argv[1]); "
                 "print('HISTORICAL_MODEL_LOADER_IMPORT_PASS')"
             ),
+            str(source_root),
         ],
+        env=historical_env(source_root),
         check=True,
     )
 
@@ -193,7 +225,7 @@ def worker(args) -> None:
             ),
             f"output.filename={output_name}",
         ]
-        env = dict(os.environ)
+        env = historical_env(args.historical_swm_root)
         env["STABLEWM_HOME"] = str(args.stablewm_home)
         # stable-worldmodel 0.0.6 interprets LOCAL_DATASET_DIR as the dataset
         # directory itself (unlike STABLEWM_HOME, which is the cache root).
@@ -261,6 +293,9 @@ def main() -> None:
     parser.add_argument(
         "--historical-python", type=Path, default=DEFAULT_HISTORICAL_PYTHON
     )
+    parser.add_argument(
+        "--historical-swm-root", type=Path, default=DEFAULT_HISTORICAL_SWM_ROOT
+    )
     parser.add_argument("--worker", action="store_true")
     parser.add_argument("--campaign", type=Path)
     parser.add_argument("--arm", choices=tuple(ARMS))
@@ -276,6 +311,9 @@ def main() -> None:
         "converter": CONVERTER,
         "historical eval.py": args.historical_root / "eval.py",
         "historical Python": args.historical_python,
+        "historical stable-worldmodel source": (
+            args.historical_swm_root / "stable_worldmodel/wm/utils.py"
+        ),
         "Reacher dataset": args.stablewm_home / "datasets/dmc/reacher_random.h5",
     }
     for label, arm in ARMS.items():
@@ -291,6 +329,17 @@ def main() -> None:
         "protocol": "clean_reacher_historical_seed42",
         "historical_root": str(args.historical_root),
         "historical_python": str(args.historical_python),
+        "historical_stable_worldmodel_root": str(args.historical_swm_root),
+        "historical_stable_worldmodel_commit": (
+            git_revision(args.historical_swm_root)
+            if (args.historical_swm_root / ".git").exists()
+            else None
+        ),
+        "historical_stable_worldmodel_dirty": (
+            git_is_dirty(args.historical_swm_root)
+            if (args.historical_swm_root / ".git").exists()
+            else None
+        ),
         "local_dataset_dir": str(historical_dataset_dir(args.stablewm_home)),
         "historical_versions": (
             package_versions(args.historical_python)
@@ -319,13 +368,18 @@ def main() -> None:
         parser.error("refusing to submit without --confirm-run")
     if missing:
         parser.error("missing: " + ", ".join(missing))
+    if manifest["historical_stable_worldmodel_dirty"] is not False:
+        parser.error("historical stable-worldmodel source must be a clean Git checkout")
 
     dataset_rows = preflight_historical_dataset(
         args.historical_python,
         args.historical_root,
         historical_dataset_dir(args.stablewm_home),
+        args.historical_swm_root,
     )
-    preflight_historical_model_loader(args.historical_python)
+    preflight_historical_model_loader(
+        args.historical_python, args.historical_swm_root
+    )
     manifest["historical_dataset_preflight_rows"] = dataset_rows
     print(f"HISTORICAL_REACHER_DATASET_PREFLIGHT_PASS rows={dataset_rows}")
 
@@ -362,6 +416,8 @@ def main() -> None:
             args.historical_root,
             "--historical-python",
             args.historical_python,
+            "--historical-swm-root",
+            args.historical_swm_root,
         ]
     ).replace("'$arm'", '"$arm"')
     shell = "\n".join(

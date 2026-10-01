@@ -1,9 +1,12 @@
+import os
+
 import pytest
 
 from additional_files.reacher_historical_eval_campaign import (
     ARMS,
     HISTORICAL_EVAL_PRELUDE,
     HISTORICAL_OVERRIDES,
+    historical_env,
     historical_dataset_dir,
     parse_success_rate,
 )
@@ -38,6 +41,15 @@ def test_historical_dataset_root_includes_datasets_component(tmp_path):
 def test_historical_eval_prelude_imports_lazy_model_loader():
     assert "import stable_worldmodel.wm.utils" in HISTORICAL_EVAL_PRELUDE
     assert "runpy.run_path" in HISTORICAL_EVAL_PRELUDE
+
+
+def test_historical_source_tree_is_prepended_to_pythonpath(monkeypatch, tmp_path):
+    monkeypatch.setenv("PYTHONPATH", "/existing/source")
+    env = historical_env(tmp_path)
+    assert env["PYTHONPATH"].split(os.pathsep) == [
+        str(tmp_path),
+        "/existing/source",
+    ]
 
 
 @pytest.mark.parametrize(

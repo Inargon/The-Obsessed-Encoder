@@ -36,9 +36,10 @@ emits SHA-256 provenance.
 - `seed=42`
 - `solver.n_steps=30`
 
-The historical package lazily exposes `stable_worldmodel.wm.utils`; the runner
-must import that module explicitly before executing `eval.py`. Without this
-preload, model loading fails before any rollout even though the module exists.
+The PyPI `stable-worldmodel==0.0.6` wheel does not contain the LeWM model-loader
+module. The runner therefore prepends the pinned companion source checkout
+`stable-worldmodel-repro-20260514` to `PYTHONPATH`, records its Git commit, and
+explicitly imports `stable_worldmodel.wm.utils` before executing `eval.py`.
 
 Resolved planning settings are 300 CEM samples, top-30 elites, horizon 5,
 receding horizon 5, action block 5, goal offset 25, evaluation budget 50, and
