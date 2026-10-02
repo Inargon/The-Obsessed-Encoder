@@ -27,6 +27,7 @@ SUFFIX_MAP = {
     "layernorm_before": "layernorm_before",
     "layernorm_after": "layernorm_after",
 }
+TRAINING_ONLY_PREFIXES = ("control_objective.", "bloop_router.")
 
 
 def historical_key(key: str) -> str:
@@ -50,7 +51,7 @@ def convert_state_dict(state_dict):
     removed = []
     renamed = []
     for key, value in state_dict.items():
-        if key.startswith("control_objective."):
+        if key.startswith(TRAINING_ONLY_PREFIXES):
             removed.append(key)
             continue
         target = historical_key(key)
@@ -112,7 +113,13 @@ def main() -> None:
         "destination_sha256": sha256(args.destination),
         "source_tensors": len(original),
         "destination_tensors": len(converted),
-        "removed_control_tensors": len(removed),
+        "removed_training_only_tensors": len(removed),
+        "removed_control_tensors": sum(
+            key.startswith("control_objective.") for key in removed
+        ),
+        "removed_bloop_tensors": sum(
+            key.startswith("bloop_router.") for key in removed
+        ),
         "renamed_encoder_tensors": len(renamed),
     }
     provenance.write_text(json.dumps(record, indent=2) + "\n")

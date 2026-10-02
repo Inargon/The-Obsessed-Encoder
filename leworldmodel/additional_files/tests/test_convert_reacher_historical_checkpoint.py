@@ -38,7 +38,7 @@ def test_historical_key(modern, historical):
     assert historical_key(modern) == historical
 
 
-def test_conversion_removes_only_control_and_preserves_values():
+def test_conversion_removes_training_only_modules_and_preserves_values():
     shared = torch.tensor([1.0])
     layer = torch.tensor([2.0])
     state = OrderedDict(
@@ -46,10 +46,14 @@ def test_conversion_removes_only_control_and_preserves_values():
             ("projector.weight", shared),
             ("encoder.layers.0.attention.k_proj.weight", layer),
             ("control_objective.inverse.weight", torch.tensor([3.0])),
+            ("bloop_router.control_ema_0", torch.tensor([4.0])),
         )
     )
     converted, removed, renamed = convert_state_dict(state)
-    assert list(removed) == ["control_objective.inverse.weight"]
+    assert list(removed) == [
+        "control_objective.inverse.weight",
+        "bloop_router.control_ema_0",
+    ]
     assert renamed == [
         (
             "encoder.layers.0.attention.k_proj.weight",

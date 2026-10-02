@@ -39,7 +39,7 @@ def load_inference_model(run_name: str, checkpoint: str):
     state_dict = torch.load(
         checkpoint_dir / checkpoint, map_location="cpu", weights_only=True
     )
-    auxiliary_prefixes = ("control_objective.",)
+    auxiliary_prefixes = ("control_objective.", "bloop_router.")
     stripped = [key for key in state_dict if key.startswith(auxiliary_prefixes)]
     state_dict = {
         key: value
