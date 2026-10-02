@@ -1,5 +1,6 @@
 from leworldmodel.additional_files.interface_cycle_campaign import (
     BENCHMARKS,
+    DEFAULT_BENCHMARKS,
     ROUTINGS,
     benchmark_spec,
 )
@@ -17,10 +18,24 @@ def test_interface_cycle_arms_change_only_cycle_gradient_scope():
 
 def test_interface_cycle_benchmarks_use_expected_tag_conditions():
     _, tagged = benchmark_spec("tagged_pusht")
-    _, clean = benchmark_spec("clean_reacher")
 
     assert "+pixel_tag.mode=video" in tagged["overrides"]
-    assert not any("pixel_tag" in value for value in clean["overrides"])
+    for benchmark in ("clean_reacher", "clean_cube", "clean_tworoom"):
+        _, clean = benchmark_spec(benchmark)
+        assert not any("pixel_tag" in value for value in clean["overrides"])
+
+
+def test_cross_task_interface_cycle_uses_matched_clean_data():
+    assert DEFAULT_BENCHMARKS == ("tagged_pusht", "clean_reacher")
+    expected_data = {
+        "clean_cube": "data=ogb",
+        "clean_tworoom": "data=tworoom",
+    }
+    for benchmark, data_override in expected_data.items():
+        _, spec = benchmark_spec(benchmark)
+        assert data_override in spec["overrides"]
+        assert "+loss.control.cycle_weight=0.5" in spec["overrides"]
+        assert "+loss.control.cycle_scope=predictor_only" in spec["overrides"]
 
 
 def test_bloop_cycle_replaces_only_the_embedding_router():

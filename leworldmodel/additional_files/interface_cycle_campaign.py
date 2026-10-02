@@ -24,7 +24,13 @@ import sys
 
 REPO = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
-BENCHMARKS = ("tagged_pusht", "clean_reacher")
+BENCHMARKS = (
+    "tagged_pusht",
+    "clean_reacher",
+    "clean_cube",
+    "clean_tworoom",
+)
+DEFAULT_BENCHMARKS = ("tagged_pusht", "clean_reacher")
 ROUTINGS = ("aligned", "conflict_only", "bloop")
 
 
@@ -96,6 +102,22 @@ def benchmark_spec(
 
         config = load_reacher_configs()
         spec = copy.deepcopy(config["arms"]["reacher_clean_aligned"])
+    elif benchmark == "clean_cube":
+        try:
+            from .run_cube_control import load_cube_configs
+        except ImportError:
+            from run_cube_control import load_cube_configs
+
+        config = load_cube_configs()
+        spec = copy.deepcopy(config["arms"]["cube_clean_aligned"])
+    elif benchmark == "clean_tworoom":
+        try:
+            from .run_tworoom_control import load_tworoom_configs
+        except ImportError:
+            from run_tworoom_control import load_tworoom_configs
+
+        config = load_tworoom_configs()
+        spec = copy.deepcopy(config["arms"]["tworoom_clean_aligned"])
     else:
         raise ValueError(f"unknown benchmark {benchmark!r}")
 
@@ -224,11 +246,12 @@ def evaluate(
     env = environment()
     name = run_name(root, benchmark, seed, smoke=False, routing=routing)
     output = root / f"{benchmark}-epoch10-eval-seed42.json"
-    script = (
-        HERE / "evaluate_pusht_checkpoint.py"
-        if benchmark == "tagged_pusht"
-        else HERE / "evaluate_reacher_checkpoint.py"
-    )
+    if benchmark == "tagged_pusht":
+        script = HERE / "evaluate_pusht_checkpoint.py"
+    elif benchmark == "clean_reacher":
+        script = HERE / "evaluate_reacher_checkpoint.py"
+    else:
+        script = HERE / "evaluate_clean_checkpoint.py"
     command = [
         sys.executable,
         str(script),
@@ -245,8 +268,13 @@ def evaluate(
     ]
     if benchmark == "tagged_pusht":
         command += ["--dataset", "pusht_expert_train.h5", "--tagged"]
-    else:
+    elif benchmark == "clean_reacher":
         command += ["--dataset", "dmc/reacher_random.h5"]
+    else:
+        command += [
+            "--task",
+            "cube" if benchmark == "clean_cube" else "tworoom",
+        ]
     subprocess.run(command, cwd=REPO / "leworldmodel", env=env, check=True)
     print(f"INTERFACE_CYCLE_EVAL_COMPLETE benchmark={benchmark}", flush=True)
 
@@ -270,8 +298,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--benchmarks",
-        default=",".join(BENCHMARKS),
-        help="Comma-separated subset of tagged_pusht,clean_reacher",
+        default=",".join(DEFAULT_BENCHMARKS),
+        help=(
+            "Comma-separated subset of tagged_pusht,clean_reacher,"
+            "clean_cube,clean_tworoom"
+        ),
     )
     parser.add_argument("--worker", choices=("smoke", "train", "eval"))
     parser.add_argument("--campaign", type=Path)
@@ -306,6 +337,7 @@ def main() -> None:
     print(f"  routing: {args.routing}")
     print("  tagged PushT: test whether IR's shortcut robustness is retained")
     print("  clean Reacher: test whether the predicted-latent interface is repaired")
+    print("  clean Cube/TwoRoom: cross-task test of the same interface repair")
     print("  matched Full differs only in Cycle gradient scope")
     benchmarks = list(
         dict.fromkeys(value.strip() for value in args.benchmarks.split(",") if value.strip())
