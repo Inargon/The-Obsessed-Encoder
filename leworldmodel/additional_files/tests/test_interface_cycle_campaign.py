@@ -20,9 +20,25 @@ def test_interface_cycle_benchmarks_use_expected_tag_conditions():
     _, tagged = benchmark_spec("tagged_pusht")
 
     assert "+pixel_tag.mode=video" in tagged["overrides"]
-    for benchmark in ("clean_reacher", "clean_cube", "clean_tworoom"):
+    for benchmark in (
+        "clean_pusht",
+        "clean_reacher",
+        "clean_cube",
+        "clean_tworoom",
+    ):
         _, clean = benchmark_spec(benchmark)
         assert not any("pixel_tag" in value for value in clean["overrides"])
+
+
+def test_clean_pusht_differs_from_tagged_only_by_tagging():
+    _, tagged = benchmark_spec("tagged_pusht")
+    _, clean = benchmark_spec("clean_pusht")
+
+    tagged_without_pixel_tag = [
+        value for value in tagged["overrides"] if "pixel_tag" not in value
+    ]
+    assert clean["overrides"] == tagged_without_pixel_tag
+    assert not any("eval.tag_" in value for value in clean["eval_overrides"])
 
 
 def test_cross_task_interface_cycle_uses_matched_clean_data():

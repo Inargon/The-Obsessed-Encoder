@@ -26,6 +26,7 @@ REPO = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 BENCHMARKS = (
     "tagged_pusht",
+    "clean_pusht",
     "clean_reacher",
     "clean_cube",
     "clean_tworoom",
@@ -86,7 +87,7 @@ def benchmark_spec(
 ) -> tuple[dict, dict]:
     if routing not in ROUTINGS:
         raise ValueError(f"unknown routing {routing!r}")
-    if benchmark == "tagged_pusht":
+    if benchmark in ("tagged_pusht", "clean_pusht"):
         try:
             from .run_control import load_control_configs
         except ImportError:
@@ -94,6 +95,17 @@ def benchmark_spec(
 
         config = load_control_configs()
         spec = copy.deepcopy(config["arms"]["control_aligned_pred1"])
+        if benchmark == "clean_pusht":
+            spec["overrides"] = [
+                value
+                for value in spec["overrides"]
+                if not value.startswith("+pixel_tag.")
+            ]
+            spec["eval_overrides"] = [
+                value
+                for value in spec.get("eval_overrides", [])
+                if not value.startswith("+eval.tag_")
+            ]
     elif benchmark == "clean_reacher":
         try:
             from .run_reacher_control import load_reacher_configs
@@ -246,7 +258,7 @@ def evaluate(
     env = environment()
     name = run_name(root, benchmark, seed, smoke=False, routing=routing)
     output = root / f"{benchmark}-epoch10-eval-seed42.json"
-    if benchmark == "tagged_pusht":
+    if benchmark in ("tagged_pusht", "clean_pusht"):
         script = HERE / "evaluate_pusht_checkpoint.py"
     elif benchmark == "clean_reacher":
         script = HERE / "evaluate_reacher_checkpoint.py"
@@ -266,8 +278,10 @@ def evaluate(
         "--output",
         str(output),
     ]
-    if benchmark == "tagged_pusht":
-        command += ["--dataset", "pusht_expert_train.h5", "--tagged"]
+    if benchmark in ("tagged_pusht", "clean_pusht"):
+        command += ["--dataset", "pusht_expert_train.h5"]
+        if benchmark == "tagged_pusht":
+            command.append("--tagged")
     elif benchmark == "clean_reacher":
         command += ["--dataset", "dmc/reacher_random.h5"]
     else:
@@ -300,7 +314,7 @@ def main() -> None:
         "--benchmarks",
         default=",".join(DEFAULT_BENCHMARKS),
         help=(
-            "Comma-separated subset of tagged_pusht,clean_reacher,"
+            "Comma-separated subset of tagged_pusht,clean_pusht,clean_reacher,"
             "clean_cube,clean_tworoom"
         ),
     )
