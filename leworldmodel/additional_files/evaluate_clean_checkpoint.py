@@ -26,7 +26,7 @@ from additional_files.callbacks.goal_eval import GoalEvalCallback
 TASK_DEFAULTS = {
     "pusht": "pusht_expert_train.h5",
     "cube": "ogbench/cube_single_expert.h5",
-    "tworoom": "tworoom",
+    "tworoom": "tworoom.h5",
 }
 
 
