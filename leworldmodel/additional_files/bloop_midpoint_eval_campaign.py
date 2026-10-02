@@ -72,6 +72,9 @@ def modern_environment(stablewm_home: Path) -> dict[str, str]:
 
 
 def worker(args: argparse.Namespace) -> None:
+    # Historical stable-worldmodel treats relative policies as names below
+    # STABLEWM_HOME/checkpoints, so every cross-repository path must be absolute.
+    args.output_dir = args.output_dir.resolve()
     names = run_names(args.source_campaign, args.training_seed)
     checkpoint_name = f"weights_epoch_{args.epoch}.pt"
     checkpoint_root = args.stablewm_home / "checkpoints"
