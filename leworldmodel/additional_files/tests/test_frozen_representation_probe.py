@@ -1,6 +1,9 @@
 import pytest
 
-from additional_files.diagnose_frozen_representation import parse_checkpoint
+from additional_files.diagnose_frozen_representation import (
+    AUXILIARY_PREFIXES,
+    parse_checkpoint,
+)
 
 
 def test_parse_checkpoint():
@@ -15,3 +18,7 @@ def test_parse_checkpoint():
 def test_parse_checkpoint_rejects_invalid_values(value):
     with pytest.raises(Exception):
         parse_checkpoint(value)
+
+
+def test_probe_loader_tolerates_all_training_only_prefixes():
+    assert AUXILIARY_PREFIXES == ("control_objective.", "bloop_router.")

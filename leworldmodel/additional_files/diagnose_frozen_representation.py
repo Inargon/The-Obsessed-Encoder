@@ -25,6 +25,8 @@ from sklearn.preprocessing import StandardScaler
 from additional_files.pixel_tag import PixelTag, attach_pixel_tag
 from utils import get_img_preprocessor
 
+AUXILIARY_PREFIXES = ("control_objective.", "bloop_router.")
+
 
 def load_probe_model(name: str):
     """Load a checkpoint while tolerating training-only control heads.
@@ -41,7 +43,7 @@ def load_probe_model(name: str):
         incompatible = original(module, state_dict, strict=False, assign=assign)
         unexpected = [
             key for key in incompatible.unexpected_keys
-            if not key.startswith("control_objective.")
+            if not key.startswith(AUXILIARY_PREFIXES)
         ]
         if incompatible.missing_keys or unexpected:
             raise RuntimeError(
