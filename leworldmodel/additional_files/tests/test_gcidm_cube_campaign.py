@@ -1,4 +1,7 @@
 from additional_files.gcidm_cube_campaign import (
+    DEFAULT_STABLEWM,
+    DATASET_RELATIVE,
+    HDF5_BOOTSTRAP,
     make_inference_state_dict,
     parse_eval_summary,
 )
@@ -53,3 +56,14 @@ def test_matched_sampler_includes_full_valid_population() -> None:
     assert sorted(zip(episodes, starts)) == [
         (0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)
     ]
+
+
+def test_cube_dataset_location_is_under_stablewm_datasets() -> None:
+    assert DEFAULT_STABLEWM / DATASET_RELATIVE == (
+        DEFAULT_STABLEWM / "datasets/ogbench/cube_single_expert.h5"
+    )
+
+
+def test_hdf5_plugin_is_registered_before_official_extractor() -> None:
+    assert HDF5_BOOTSTRAP.startswith("import hdf5plugin,")
+    assert "runpy.run_path" in HDF5_BOOTSTRAP

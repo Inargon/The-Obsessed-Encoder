@@ -32,6 +32,10 @@ RUN_NAME = "interface-cycle-20261002-203108_clean_cube_bloop_cycle_full_seed0"
 CHECKPOINT_NAME = "weights_epoch_10.pt"
 DATASET_RELATIVE = Path("datasets/ogbench/cube_single_expert.h5")
 TRAINING_ONLY_PREFIXES = ("control_objective.", "bloop_router.")
+HDF5_BOOTSTRAP = (
+    "import hdf5plugin,runpy,sys; "
+    "script=sys.argv.pop(1); runpy.run_path(script,run_name='__main__')"
+)
 UPSTREAM_URL = (
     "https://github.com/hdnndh/"
     "Latent-Geometry-Beyond-Search-Amortizing-Planning-in-World-Models.git"
@@ -245,7 +249,9 @@ def main() -> None:
     )
     extract_cmd = exports + "\n" + shlex.join(
         [
-            str(args.python), str(args.upstream / "train_idm.py"), "extract",
+            str(args.python), "-c",
+            HDF5_BOOTSTRAP,
+            str(args.upstream / "train_idm.py"), "extract",
             "--checkpoint", str(bundle), "--h5", str(dataset),
             "--output", str(embeddings), "--batch-size", "512",
             "--num-prefetch", "8", "--device", "cuda:0",
