@@ -24,6 +24,13 @@ from additional_files.gcidm_cube_campaign import (
     submit,
     upstream_record,
 )
+HISTORICAL_ROOT = Path("/grp01/ids_compcog/song/code/le-wm-repro-20260514")
+HISTORICAL_PYTHON = Path(
+    "/grp01/ids_compcog/song/envs/lewm-repro-py310/bin/python"
+)
+HISTORICAL_SWM = Path(
+    "/grp01/ids_compcog/song/code/stable-worldmodel-repro-20260514"
+)
 
 
 TASKS = {
@@ -37,6 +44,19 @@ TASKS = {
         "official_dataset": "tworoom",
         "action_dim": 2,
         "cem_reference": 0.96,
+        "runtime": "modern",
+    },
+    "reacher": {
+        "run_name": (
+            "interface-cycle-20261002-064431_"
+            "clean_reacher_bloop_cycle_full_seed0"
+        ),
+        "checkpoint": "weights_epoch_10.pt",
+        "dataset": "datasets/dmc/reacher_random.h5",
+        "official_dataset": "reacher",
+        "action_dim": 2,
+        "cem_reference": 0.88,
+        "runtime": "historical",
     },
     "clean_pusht": {
         "run_name": (
@@ -48,6 +68,7 @@ TASKS = {
         "official_dataset": "pusht",
         "action_dim": 2,
         "cem_reference": None,
+        "runtime": "modern",
     },
 }
 
@@ -76,7 +97,19 @@ def prepare_task_bundle(
     bundle.mkdir(parents=True, exist_ok=False)
     shutil.copy2(config, bundle / "config.json")
     state = torch.load(checkpoint, map_location="cpu", weights_only=True)
-    inference, removed = make_inference_state_dict(state)
+    if spec["runtime"] == "historical":
+        from additional_files.convert_reacher_historical_checkpoint import (
+            convert_state_dict as convert_reacher_state_dict,
+        )
+
+        inference, removed, renamed = convert_reacher_state_dict(state)
+        if len(renamed) != 192:
+            raise RuntimeError(
+                f"expected 192 historical encoder renames, found {len(renamed)}"
+            )
+    else:
+        inference, removed = make_inference_state_dict(state)
+        renamed = []
     torch.save(inference, bundle / "weights.pt")
     provenance = {
         "source_run": spec["run_name"],
@@ -84,6 +117,8 @@ def prepare_task_bundle(
         "source_tensor_count": len(state),
         "inference_tensor_count": len(inference),
         "removed_tensor_count": len(removed),
+        "renamed_tensor_count": len(renamed),
+        "runtime": spec["runtime"],
     }
     (bundle / "provenance.json").write_text(
         json.dumps(provenance, indent=2) + "\n", encoding="utf-8"
@@ -91,17 +126,34 @@ def prepare_task_bundle(
     return bundle, provenance
 
 
-def runtime_environment(manifest: dict) -> dict[str, str]:
+def runtime_environment(manifest: dict, task: str) -> dict[str, str]:
     env = dict(os.environ)
     upstream = manifest["official_upstream"]["root"]
-    env["PYTHONPATH"] = os.pathsep.join(
-        (upstream, str(REPO / "leworldmodel"), str(REPO), env.get("PYTHONPATH", ""))
-    )
+    if TASKS[task]["runtime"] == "historical":
+        roots = (
+            upstream,
+            manifest["historical_swm_root"],
+            manifest["historical_root"],
+            str(REPO / "leworldmodel"),
+            str(REPO),
+            env.get("PYTHONPATH", ""),
+        )
+    else:
+        roots = (
+            upstream,
+            str(REPO / "leworldmodel"),
+            str(REPO),
+            env.get("PYTHONPATH", ""),
+        )
+    env["PYTHONPATH"] = os.pathsep.join(roots)
     stablewm = manifest["stablewm_home"]
     env["STABLEWM_HOME"] = stablewm
     env["LOCAL_DATASET_DIR"] = stablewm
     env["MUJOCO_GL"] = "egl"
-    env["PYOPENGL_PLATFORM"] = "egl"
+    if TASKS[task]["runtime"] == "historical":
+        env.pop("PYOPENGL_PLATFORM", None)
+    else:
+        env["PYOPENGL_PLATFORM"] = "egl"
     job_id = env.get("SLURM_JOB_ID", "local")
     env["TMPDIR"] = f"/grp01/ids_compcog/song/tmp/aluo/{job_id}"
     Path(env["TMPDIR"]).mkdir(parents=True, exist_ok=True)
@@ -113,14 +165,18 @@ def run_worker(campaign: Path, task: str, phase: str) -> None:
     if task not in manifest["tasks"]:
         raise ValueError(f"task {task} is absent from campaign")
     spec = TASKS[task]
-    python = manifest["python"]
+    python = (
+        manifest["historical_python"]
+        if spec["runtime"] == "historical"
+        else manifest["python"]
+    )
     upstream = Path(manifest["official_upstream"]["root"])
     stablewm = Path(manifest["stablewm_home"])
     task_root = campaign / task
     bundle = task_root / "inference"
     embeddings = task_root / "embeddings.npz"
     idm = task_root / "gcidm.pt"
-    env = runtime_environment(manifest)
+    env = runtime_environment(manifest, task)
 
     if phase == "extract":
         command = [
@@ -186,7 +242,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--submit", action="store_true")
     parser.add_argument("--confirm-run", action="store_true")
-    parser.add_argument("--tasks", default="tworoom,clean_pusht")
+    parser.add_argument("--tasks", default="tworoom,reacher")
     parser.add_argument("--upstream", type=Path, default=DEFAULT_UPSTREAM)
     parser.add_argument("--stablewm-home", type=Path, default=DEFAULT_STABLEWM)
     parser.add_argument("--python", type=Path, default=DEFAULT_PYTHON)
@@ -252,6 +308,19 @@ def main() -> None:
         raise FileNotFoundError(
             f"Missing completed Bloop checkpoints: {missing_checkpoints}"
         )
+    if "reacher" in tasks:
+        historical_required = (
+            HISTORICAL_PYTHON,
+            HISTORICAL_ROOT / "jepa.py",
+            HISTORICAL_SWM / "stable_worldmodel/wm/utils.py",
+        )
+        historical_missing = [
+            str(path) for path in historical_required if not path.is_file()
+        ]
+        if historical_missing:
+            raise FileNotFoundError(
+                f"Missing historical Reacher runtime: {historical_missing}"
+            )
 
     campaign = REPO / "leworldmodel/results" / (
         "gcidm-bloop-multitask-" + datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -266,10 +335,36 @@ def main() -> None:
         **plan,
         "python": str(args.python),
         "stablewm_home": str(args.stablewm_home),
+        "historical_root": str(HISTORICAL_ROOT),
+        "historical_python": str(HISTORICAL_PYTHON),
+        "historical_swm_root": str(HISTORICAL_SWM),
         "official_upstream": official,
         "conversions": conversions,
         "jobs": {},
     }
+    if "reacher" in tasks:
+        preflight = """
+import sys
+import stable_worldmodel as swm
+import stable_worldmodel.wm.utils
+from idm.dataset import load_lewm_model
+assert swm.__file__.startswith(sys.argv[1])
+model = load_lewm_model(sys.argv[2], "cpu")
+jepa = model.model if hasattr(model, "model") else model
+assert hasattr(jepa, "encoder") and hasattr(jepa, "projector")
+print("GCIDM_HISTORICAL_REACHER_PREFLIGHT_PASS")
+"""
+        subprocess.run(
+            [
+                str(HISTORICAL_PYTHON),
+                "-c",
+                preflight,
+                str(HISTORICAL_SWM),
+                str(campaign / "reacher/inference"),
+            ],
+            env=runtime_environment(manifest, "reacher"),
+            check=True,
+        )
 
     def save() -> None:
         (campaign / "manifest.json").write_text(
