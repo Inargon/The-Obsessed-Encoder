@@ -56,6 +56,8 @@ def test_matched_sampler_includes_full_valid_population() -> None:
     assert sorted(zip(episodes, starts)) == [
         (0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)
     ]
+    assert hasattr(episodes, "tolist")
+    assert hasattr(starts, "tolist")
 
 
 def test_cube_dataset_location_is_under_stablewm_datasets() -> None:

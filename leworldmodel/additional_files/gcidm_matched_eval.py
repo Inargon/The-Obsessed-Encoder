@@ -45,7 +45,9 @@ def sample_matched_eval_episodes(
         )
     rng = np.random.default_rng(seed)
     rows = np.sort(rng.choice(valid, size=num_eval, replace=False))
-    return episode_idx[rows].tolist(), step_idx[rows].tolist()
+    # The official evaluator calls ``.tolist()`` when passing both arrays into
+    # World.evaluate, so preserve its ndarray interface here.
+    return episode_idx[rows], step_idx[rows]
 
 
 def main() -> None:
