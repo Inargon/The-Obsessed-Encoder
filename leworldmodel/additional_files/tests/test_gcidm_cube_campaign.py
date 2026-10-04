@@ -1,3 +1,5 @@
+import numpy as np
+
 from additional_files.gcidm_cube_campaign import (
     DEFAULT_STABLEWM,
     DATASET_RELATIVE,
@@ -69,16 +71,52 @@ def test_cube_dataset_location_is_under_stablewm_datasets() -> None:
     )
 
 
-def test_historical_world_evaluate_compat_removes_only_dataset() -> None:
+def test_historical_world_evaluate_compat_backports_dataset_mode() -> None:
+    class Dataset:
+        column_names = ("state",)
+
+        def load_chunk(self, episodes, starts, ends):
+            assert episodes.tolist() == [3]
+            assert starts.tolist() == [4]
+            assert ends.tolist() == [6]
+            return [{"state": np.array([[1.0, 2.0], [3.0, 4.0]])}]
+
+    class Envs:
+        class Unwrapped:
+            envs = []
+
+        unwrapped = Unwrapped()
+
     class HistoricalWorld:
+        num_envs = 1
+        envs = Envs()
+
+        def __init__(self):
+            self.infos = {"pixels": np.zeros((1, 1, 2, 2, 3))}
+            self.terminateds = np.zeros(1, dtype=bool)
+
         def evaluate(self, episodes, starts, budget):
             return episodes, starts, budget
 
+        def reset(self, seed=None):
+            self.reset_seed = seed
+
+        def step(self):
+            self.terminateds[:] = True
+
     assert install_world_evaluate_compat(HistoricalWorld)
     world = HistoricalWorld()
-    assert world.evaluate(
-        [1], [2], budget=50, dataset=object()
-    ) == ([1], [2], 50)
+    result = world.evaluate(
+        dataset=Dataset(),
+        episodes_idx=[3],
+        start_steps=[4],
+        goal_offset=1,
+        eval_budget=2,
+        callables=[],
+    )
+    assert result["success_rate"] == 100.0
+    assert result["episode_successes"].tolist() == [True]
+    assert world.infos["goal_state"].tolist() == [[[3.0, 4.0]]]
 
 
 def test_modern_world_evaluate_does_not_need_compat() -> None:
