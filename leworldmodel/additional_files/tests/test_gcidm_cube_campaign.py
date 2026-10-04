@@ -5,7 +5,10 @@ from additional_files.gcidm_cube_campaign import (
     make_inference_state_dict,
     parse_eval_summary,
 )
-from additional_files.gcidm_matched_eval import sample_matched_eval_episodes
+from additional_files.gcidm_matched_eval import (
+    install_world_evaluate_compat,
+    sample_matched_eval_episodes,
+)
 
 
 def test_inference_bundle_drops_only_training_components() -> None:
@@ -64,6 +67,28 @@ def test_cube_dataset_location_is_under_stablewm_datasets() -> None:
     assert DEFAULT_STABLEWM / DATASET_RELATIVE == (
         DEFAULT_STABLEWM / "datasets/ogbench/cube_single_expert.h5"
     )
+
+
+def test_historical_world_evaluate_compat_removes_only_dataset() -> None:
+    class HistoricalWorld:
+        def evaluate(self, episodes, starts, budget):
+            return episodes, starts, budget
+
+    assert install_world_evaluate_compat(HistoricalWorld)
+    world = HistoricalWorld()
+    assert world.evaluate(
+        [1], [2], budget=50, dataset=object()
+    ) == ([1], [2], 50)
+
+
+def test_modern_world_evaluate_does_not_need_compat() -> None:
+    class ModernWorld:
+        def evaluate(self, episodes, starts, budget, dataset=None):
+            return dataset
+
+    original = ModernWorld.evaluate
+    assert not install_world_evaluate_compat(ModernWorld)
+    assert ModernWorld.evaluate is original
 
 
 def test_hdf5_plugin_is_registered_before_official_extractor() -> None:

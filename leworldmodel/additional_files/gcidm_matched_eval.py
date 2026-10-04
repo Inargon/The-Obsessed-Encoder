@@ -4,9 +4,26 @@
 from __future__ import annotations
 
 import importlib
+import functools
+import inspect
 import sys
 
 import numpy as np
+
+
+def install_world_evaluate_compat(world_class) -> bool:
+    """Allow the modern GC-IDM evaluator to call the historical World API."""
+    evaluate = world_class.evaluate
+    if "dataset" in inspect.signature(evaluate).parameters:
+        return False
+
+    @functools.wraps(evaluate)
+    def compatible_evaluate(self, *args, **kwargs):
+        kwargs.pop("dataset", None)
+        return evaluate(self, *args, **kwargs)
+
+    world_class.evaluate = compatible_evaluate
+    return True
 
 
 def sample_matched_eval_episodes(
@@ -53,6 +70,9 @@ def sample_matched_eval_episodes(
 def main() -> None:
     official = importlib.import_module("eval_idm")
     official.sample_eval_episodes = sample_matched_eval_episodes
+    world_class = official.swm.World
+    if install_world_evaluate_compat(world_class):
+        print("GCIDM_HISTORICAL_WORLD_EVALUATE_COMPAT_ACTIVE")
     official.main()
 
 
