@@ -81,9 +81,21 @@ def test_historical_world_evaluate_compat_backports_dataset_mode() -> None:
             assert ends.tolist() == [6]
             return [{"state": np.array([[1.0, 2.0], [3.0, 4.0]])}]
 
+    class SingleEnv:
+        unwrapped = None
+
+        def __init__(self):
+            self.unwrapped = self
+            self.resets = 0
+
+        def reset(self):
+            self.resets += 1
+            return None, {}
+
     class Envs:
         class Unwrapped:
-            envs = []
+            envs = [SingleEnv()]
+            _autoreset_envs = np.zeros(1, dtype=bool)
 
         unwrapped = Unwrapped()
 
@@ -94,6 +106,7 @@ def test_historical_world_evaluate_compat_backports_dataset_mode() -> None:
         def __init__(self):
             self.infos = {"pixels": np.zeros((1, 1, 2, 2, 3))}
             self.terminateds = np.zeros(1, dtype=bool)
+            self.truncateds = np.zeros(1, dtype=bool)
 
         def evaluate(self, episodes, starts, budget):
             return episodes, starts, budget
@@ -117,6 +130,7 @@ def test_historical_world_evaluate_compat_backports_dataset_mode() -> None:
     assert result["success_rate"] == 100.0
     assert result["episode_successes"].tolist() == [True]
     assert world.infos["goal_state"].tolist() == [[[3.0, 4.0]]]
+    assert world.envs.unwrapped.envs[0].resets == 1
 
 
 def test_modern_world_evaluate_does_not_need_compat() -> None:

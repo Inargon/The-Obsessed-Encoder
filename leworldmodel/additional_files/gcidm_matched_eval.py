@@ -93,10 +93,32 @@ def _historical_evaluate_from_dataset(
                 ).copy()
     goal_snapshot = {key: world.infos[key].copy() for key in goal_state}
     successes = np.zeros(count, dtype=bool)
+    alive = np.ones(count, dtype=bool)
     for _ in range(eval_budget):
         world.step()
+        terminated = np.asarray(world.terminateds, dtype=bool)
+        truncated = np.asarray(world.truncateds, dtype=bool)
+        successes |= alive & terminated
+        newly_done = alive & (terminated | truncated)
+        alive[newly_done] = False
+
+        # Old Gymnasium has no vector ``mask=`` step.  It asserts if a done
+        # sub-environment is stepped again, so reset those slots to satisfy
+        # its state machine while ``alive`` prevents any second attempt from
+        # contributing to the metric (the modern implementation freezes them).
+        must_reset = terminated | truncated
+        if must_reset.any():
+            vector_env = world.envs.unwrapped
+            vector_env._autoreset_envs = np.zeros(count, dtype=bool)
+            for index in np.flatnonzero(must_reset):
+                _, infos = vector_env.envs[index].reset()
+                for key, value in infos.items():
+                    if key in world.infos:
+                        world.infos[key][index] = np.asarray(value)
+
         world.infos.update(deepcopy(goal_snapshot))
-        successes |= np.asarray(world.terminateds, dtype=bool)
+        if not alive.any():
+            break
 
     return {
         "success_rate": float(successes.sum()) / count * 100.0,
