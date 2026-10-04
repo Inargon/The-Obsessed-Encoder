@@ -117,15 +117,17 @@ def _border(axis, color, width=3):
         spine.set_linewidth(width)
 
 
-def render_plan_grid(out_dir, example_index, rows, oracle_frames, ghost_alpha=0.25):
+def render_plan_grid(
+    out_dir, example_index, rows, oracle_frames, model_order, ghost_alpha=0.25
+):
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from PIL import Image, ImageDraw
 
-    names = ["Physical oracle", *(DISPLAY_NAMES[name] for name in MODEL_ORDER)]
-    row_keys = ["oracle", *MODEL_ORDER]
+    names = ["Physical oracle", *(DISPLAY_NAMES[name] for name in model_order)]
+    row_keys = ["oracle", *model_order]
     steps = len(oracle_frames)
     figures = []
     for overlay in (False, True):
@@ -163,7 +165,7 @@ def render_plan_grid(out_dir, example_index, rows, oracle_frames, ghost_alpha=0.
         plt.close(fig)
 
     # Animation is intentionally task-centric: each frame advances one point
-    # along all five paths rather than alternating two nearly identical tags.
+    # along every displayed path rather than alternating two nearly identical tags.
     gif_frames = []
     for step in range(steps):
         tiles = []
@@ -218,16 +220,23 @@ def render_state_paths(out_dir, example_index, paths):
     plt.close(fig)
 
 
-def render_embedding_pca(out_dir, gallery_embeddings, example_plans, gallery_state):
+def render_embedding_pca(
+    out_dir, gallery_embeddings, example_plans, gallery_state, model_order
+):
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from sklearn.decomposition import PCA
 
-    fig, axes = plt.subplots(2, 2, figsize=(10, 9), constrained_layout=True)
+    columns = min(2, len(model_order))
+    rows = int(np.ceil(len(model_order) / columns))
+    fig, axes = plt.subplots(
+        rows, columns, figsize=(5 * columns, 4.5 * rows), constrained_layout=True
+    )
+    axes = np.atleast_1d(axes).reshape(-1)
     color = np.arctan2(gallery_state[:, 4], gallery_state[:, 5])
-    for axis, name in zip(axes.flat, MODEL_ORDER):
+    for axis, name in zip(axes, model_order):
         pca = PCA(n_components=2).fit(gallery_embeddings[name])
         gallery_2d = pca.transform(gallery_embeddings[name])
         path_2d = pca.transform(example_plans[name])
@@ -238,12 +247,14 @@ def render_embedding_pca(out_dir, gallery_embeddings, example_plans, gallery_sta
         axis.set_title(DISPLAY_NAMES[name])
         axis.set_xticks([])
         axis.set_yticks([])
+    for axis in axes[len(model_order):]:
+        axis.remove()
     fig.suptitle("Gallery geometry and the same latent straight-line plan\ncolor = physical block angle")
     fig.savefig(out_dir / "latent-gallery-pca.png", dpi=220)
     plt.close(fig)
 
 
-def render_summaries(out_dir, summary):
+def render_summaries(out_dir, summary, model_order):
     import matplotlib
 
     matplotlib.use("Agg")
@@ -258,21 +269,21 @@ def render_summaries(out_dir, summary):
         ("counterfactual_retrieval_change_rate", "Retrieved frames changed (%)", True),
     )
     fig, axes = plt.subplots(2, 3, figsize=(13.5, 8.0), constrained_layout=True)
-    x = np.arange(len(MODEL_ORDER))
+    x = np.arange(len(model_order))
     for axis, (metric, title, percent) in zip(axes.flat, metrics):
         if metric == "linear_state_r2":
-            means = np.array([summary[name][metric] for name in MODEL_ORDER])
+            means = np.array([summary[name][metric] for name in model_order])
             cis = np.stack([means, means], axis=1)
         else:
-            means = np.array([summary[name][metric]["mean"] for name in MODEL_ORDER])
-            cis = np.array([summary[name][metric]["ci95"] for name in MODEL_ORDER])
+            means = np.array([summary[name][metric]["mean"] for name in model_order])
+            cis = np.array([summary[name][metric]["ci95"] for name in model_order])
         if percent:
             means, cis = 100 * means, 100 * cis
         errors = np.stack([means - cis[:, 0], cis[:, 1] - means])
-        axis.bar(x, means, color=[COLORS[name] for name in MODEL_ORDER], alpha=0.88)
+        axis.bar(x, means, color=[COLORS[name] for name in model_order], alpha=0.88)
         axis.errorbar(x, means, yerr=errors, fmt="none", ecolor="black", capsize=3, lw=1)
         axis.set_title(title)
-        axis.set_xticks(x, [DISPLAY_NAMES[name] for name in MODEL_ORDER], rotation=28, ha="right")
+        axis.set_xticks(x, [DISPLAY_NAMES[name] for name in model_order], rotation=20, ha="right")
         axis.grid(axis="y", alpha=0.2)
         axis.spines[["top", "right"]].set_visible(False)
         if metric in ("path_length_ratio", "control_cost_ratio"):
@@ -295,7 +306,18 @@ def main():
     parser.add_argument("--goal-offset", type=int, default=25)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--seed", type=int, default=73)
+    parser.add_argument(
+        "--models",
+        default=",".join(MODEL_ORDER),
+        help="comma-separated checkpoint labels to render",
+    )
     args = parser.parse_args()
+    model_order = tuple(name.strip() for name in args.models.split(",") if name.strip())
+    unknown = [name for name in model_order if name not in DISPLAY_NAMES]
+    if not model_order or unknown:
+        parser.error(f"invalid --models value; unknown={unknown}")
+    if not {"jepa", "bloop"}.issubset(model_order):
+        parser.error("--models must include jepa and bloop for matched example selection")
     if args.out_dir.exists():
         raise SystemExit(f"Refusing to overwrite {args.out_dir}")
     if not args.cache_dir:
@@ -393,7 +415,7 @@ def main():
 
     specs = [parse_checkpoint(value) for value in args.checkpoint]
     labels = [label for label, _, _ in specs]
-    missing = [name for name in MODEL_ORDER if name not in labels]
+    missing = [name for name in model_order if name not in labels]
     if missing:
         raise ValueError(f"Missing checkpoint labels: {missing}")
 
@@ -415,7 +437,7 @@ def main():
             torch.cuda.empty_cache()
 
     gallery_rgb = [_to_rgb(frame) for frame in gallery_raw]
-    results = {name: [] for name in MODEL_ORDER}
+    results = {name: [] for name in model_order}
     examples = []
     first_latent_plans = {}
     for pair_index in range(len(pair_ids)):
@@ -428,7 +450,7 @@ def main():
         rows = {"oracle": oracle_frames}
         physical_paths = {"oracle": oracle}
         pair_record = {"pair_index": pair_index, "dataset_index": int(pair_ids[pair_index]), "models": {}}
-        for name in MODEL_ORDER:
+        for name in model_order:
             plan = straight_path(endpoint_embeddings[name][pair_index], args.steps)
             cf_plan = straight_path(cf_endpoint_embeddings[name][pair_index], args.steps)
             if pair_index == 0:
@@ -458,7 +480,7 @@ def main():
         examples.append((rows, oracle_frames, physical_paths, pair_record))
 
     summary = {}
-    for model_index, name in enumerate(MODEL_ORDER):
+    for model_index, name in enumerate(model_order):
         summary[name] = {"linear_state_r2": linear_r2[name]}
         for metric in results[name][0]:
             mean_value, ci = bootstrap_mean_ci(
@@ -477,12 +499,12 @@ def main():
     args.out_dir.mkdir(parents=True, exist_ok=False)
     for rank, pair_index in enumerate(selected, start=1):
         rows, oracle_frames, physical_paths, _ = examples[int(pair_index)]
-        render_plan_grid(args.out_dir, rank, rows, oracle_frames)
+        render_plan_grid(args.out_dir, rank, rows, oracle_frames, model_order)
         render_state_paths(args.out_dir, rank, physical_paths)
     render_embedding_pca(
-        args.out_dir, embeddings, first_latent_plans, gallery_state
+        args.out_dir, embeddings, first_latent_plans, gallery_state, model_order
     )
-    render_summaries(args.out_dir, summary)
+    render_summaries(args.out_dir, summary, model_order)
 
     payload = {
         "protocol": {
@@ -498,6 +520,7 @@ def main():
             "example_selection": "largest JEPA-minus-repair physical RMSE gap; aggregate metrics use all pairs",
             "scope_warning": "empirical diagnostic inspired by LeJEPA identifiability; theorem assumptions are not asserted",
             "device": str(device),
+            "models": list(model_order),
         },
         "checkpoints": {label: f"{run}/{filename}" for label, run, filename in specs},
         "gallery_dataset_indices": [int(i) for i in gallery_ids],
