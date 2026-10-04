@@ -16,6 +16,7 @@ from pathlib import Path
 os.environ.setdefault("MUJOCO_GL", "egl")
 
 import stable_worldmodel as swm
+import numpy as np
 import torch
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
@@ -63,6 +64,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset")
     parser.add_argument("--num-eval", type=int, default=50)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--video-dir", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
@@ -97,8 +99,10 @@ def main() -> None:
             callables=OmegaConf.to_container(
                 callback.cfg.eval.get("callables"), resolve=True
             ),
+            video=str(args.video_dir) if args.video_dir else None,
         )
 
+    successes = np.asarray(metrics["episode_successes"], dtype=bool)
     result = {
         "task": args.task,
         "condition": "clean",
@@ -108,6 +112,8 @@ def main() -> None:
         "num_eval": args.num_eval,
         "seed": args.seed,
         "success_rate": float(metrics["success_rate"]) / 100.0,
+        "successful_episode_indices": np.flatnonzero(successes).tolist(),
+        "video_dir": str(args.video_dir) if args.video_dir else None,
         "metrics": metrics,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
