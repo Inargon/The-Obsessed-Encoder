@@ -47,6 +47,48 @@ def normalized_path_metrics(
     }
 
 
+def batched_path_metrics(
+    content: np.ndarray,
+    tag: np.ndarray,
+    gallery: np.ndarray,
+    seed: int,
+) -> dict[str, np.ndarray]:
+    """Full-dimensional path allocation for a matched trajectory batch."""
+    content = np.asarray(content, dtype=np.float64)
+    tag = np.asarray(tag, dtype=np.float64)
+    rng = np.random.default_rng(seed)
+    left = rng.integers(0, len(gallery), size=min(4096, len(gallery) * 2))
+    right = rng.integers(0, len(gallery), size=len(left))
+    scale = float(np.median(np.linalg.norm(gallery[left] - gallery[right], axis=1)))
+    scale = max(scale, 1e-12)
+    content_length = np.linalg.norm(np.diff(content, axis=1), axis=2).sum(axis=1)
+    tag_length = np.linalg.norm(np.diff(tag, axis=1), axis=2).sum(axis=1)
+    return {
+        "content_path_length_over_gallery_median": content_length / scale,
+        "tag_path_length_over_gallery_median": tag_length / scale,
+        "tag_to_content_path_length_ratio": tag_length
+        / np.maximum(content_length, 1e-12),
+    }
+
+
+def summarize_paths(values: dict[str, np.ndarray], seed: int) -> dict:
+    summary = {}
+    for offset, (key, raw) in enumerate(values.items()):
+        raw = np.asarray(raw, dtype=np.float64)
+        if key == "tag_to_content_path_length_ratio":
+            log_values = np.log(np.maximum(raw, 1e-12))
+            stats = mean_ci(log_values, seed + offset)
+            summary[key] = {
+                "geometric_mean": float(np.exp(stats["mean"])),
+                "geometric_mean_ci95": [float(np.exp(x)) for x in stats["ci95"]],
+                "median": float(np.median(raw)),
+                "fraction_below_one": float(np.mean(raw < 1.0)),
+            }
+        else:
+            summary[key] = mean_ci(raw, seed + offset)
+    return summary
+
+
 def similarity_samples(passes):
     import torch
 
@@ -188,7 +230,7 @@ def render_trajectory_figure(out_dir, records):
     plt.close(fig)
 
 
-def render_path_lengths(out_dir, metrics):
+def render_path_lengths(out_dir, summaries):
     import matplotlib
 
     matplotlib.use("Agg")
@@ -197,10 +239,40 @@ def render_path_lengths(out_dir, metrics):
     x = np.arange(2)
     width = 0.34
     fig, axis = plt.subplots(figsize=(7.2, 4.4), constrained_layout=True)
-    content = [metrics[name]["content_path_length_over_gallery_median"] for name in MODEL_ORDER]
-    tag = [metrics[name]["tag_path_length_over_gallery_median"] for name in MODEL_ORDER]
+    content = np.asarray([
+        summaries[name]["content_path_length_over_gallery_median"]["mean"]
+        for name in MODEL_ORDER
+    ])
+    tag = np.asarray([
+        summaries[name]["tag_path_length_over_gallery_median"]["mean"]
+        for name in MODEL_ORDER
+    ])
+    content_ci = np.array([
+        summaries[name]["content_path_length_over_gallery_median"]["ci95"]
+        for name in MODEL_ORDER
+    ])
+    tag_ci = np.array([
+        summaries[name]["tag_path_length_over_gallery_median"]["ci95"]
+        for name in MODEL_ORDER
+    ])
     axis.bar(x - width / 2, content, width, label="Physical-content sweep", color="#0072b2")
     axis.bar(x + width / 2, tag, width, label="Tag-only sweep", color="#e69f00")
+    axis.errorbar(
+        x - width / 2,
+        content,
+        yerr=np.stack([content - content_ci[:, 0], content_ci[:, 1] - content]),
+        fmt="none",
+        ecolor="black",
+        capsize=3,
+    )
+    axis.errorbar(
+        x + width / 2,
+        tag,
+        yerr=np.stack([tag - tag_ci[:, 0], tag_ci[:, 1] - tag]),
+        fmt="none",
+        ecolor="black",
+        capsize=3,
+    )
     axis.set_xticks(x, [DISPLAY[name] for name in MODEL_ORDER])
     axis.set_ylabel("Latent path length / median gallery distance")
     axis.grid(axis="y", alpha=0.2)
@@ -211,6 +283,60 @@ def render_path_lengths(out_dir, metrics):
     plt.close(fig)
 
 
+def render_ratio_distribution(out_dir, per_trajectory, summaries):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, axis = plt.subplots(figsize=(7.2, 4.8), constrained_layout=True)
+    rng = np.random.default_rng(947)
+    x = np.arange(len(MODEL_ORDER), dtype=float)
+    values = [
+        np.asarray(
+            per_trajectory[name]["tag_to_content_path_length_ratio"], dtype=float
+        )
+        for name in MODEL_ORDER
+    ]
+    count = min(map(len, values))
+    for index in range(count):
+        axis.plot(x, [values[0][index], values[1][index]], color="0.80", lw=0.55, alpha=0.30)
+    for model_index, (name, raw) in enumerate(zip(MODEL_ORDER, values)):
+        jitter = rng.uniform(-0.08, 0.08, size=len(raw))
+        axis.scatter(
+            np.full(len(raw), x[model_index]) + jitter,
+            raw,
+            s=13,
+            alpha=0.42,
+            color=COLORS[name],
+            edgecolors="none",
+        )
+        stats = summaries[name]["tag_to_content_path_length_ratio"]
+        mean = stats["geometric_mean"]
+        low, high = stats["geometric_mean_ci95"]
+        axis.errorbar(
+            x[model_index],
+            mean,
+            yerr=[[mean - low], [high - mean]],
+            fmt="D",
+            color="black",
+            markerfacecolor=COLORS[name],
+            capsize=5,
+            ms=7,
+            zorder=5,
+        )
+    axis.axhline(1.0, color="0.25", ls="--", lw=1.2, label="equal allocation")
+    axis.set_yscale("log")
+    axis.set_xticks(x, [DISPLAY[name] for name in MODEL_ORDER])
+    axis.set_ylabel("Tag-only / physical-content latent path length")
+    axis.set_title("Matched trajectory-level feature allocation")
+    axis.grid(axis="y", alpha=0.2, which="both")
+    axis.spines[["top", "right"]].set_visible(False)
+    axis.legend(frameon=False)
+    fig.savefig(out_dir / "feature-allocation-ratio-distribution.png", dpi=220)
+    plt.close(fig)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", action="append", required=True)
@@ -218,7 +344,7 @@ def main():
     parser.add_argument("--cache-dir", default=os.environ.get("LOCAL_DATASET_DIR"))
     parser.add_argument("--frames", type=int, default=1024)
     parser.add_argument("--sweep-steps", type=int, default=32)
-    parser.add_argument("--candidate-clips", type=int, default=96)
+    parser.add_argument("--trajectories", type=int, default=128)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--tag-size", type=int, default=5)
     parser.add_argument("--seed", type=int, default=73)
@@ -264,35 +390,41 @@ def main():
         keys_to_cache=["state"],
     )
     trajectory_dataset.transform = None
-    candidate_ids = rng.choice(
+    trajectory_ids = rng.choice(
         len(trajectory_dataset),
-        size=min(args.candidate_clips, len(trajectory_dataset)),
+        size=min(args.trajectories, len(trajectory_dataset)),
         replace=False,
     )
-    best = None
-    for index in candidate_ids:
+    trajectory_records = []
+    for index in trajectory_ids:
         sample = trajectory_dataset[int(index)]
         state = np.asarray(sample["state"])
         score = float(np.linalg.norm(np.diff(state[:, :4], axis=0), axis=1).sum())
-        if best is None or score > best[0]:
-            best = (score, int(index), sample)
-    _, trajectory_index, trajectory_sample = best
+        trajectory_records.append((score, int(index), sample))
+    _, trajectory_index, trajectory_sample = max(trajectory_records, key=lambda row: row[0])
     raw_trajectory = torch.as_tensor(trajectory_sample["pixels"]).clone()
-    processed_trajectory = preprocess({"pixels": raw_trajectory})["pixels"]
 
     tag = PixelTag(mode="video", size=args.tag_size, seed=0)
     colors_u8 = np.stack([tag.color_for(0), tag.color_for(args.frames + 17)])
     colors_norm = normalized_colors(preprocess, colors_u8)
-    content_sweep = stamp(
-        processed_trajectory,
-        colors_norm[0].repeat(args.sweep_steps, 1),
-        args.tag_size,
-    )
     alpha = np.linspace(0, 1, args.sweep_steps)[:, None]
     smooth_u8 = np.rint((1 - alpha) * colors_u8[0] + alpha * colors_u8[1]).astype(np.uint8)
     smooth_norm = normalized_colors(preprocess, smooth_u8)
-    fixed = processed_trajectory[0:1].repeat(args.sweep_steps, 1, 1, 1)
-    tag_sweep = stamp(fixed, smooth_norm, args.tag_size)
+    content_sweeps, tag_sweeps = [], []
+    for _, _, sample in trajectory_records:
+        raw = torch.as_tensor(sample["pixels"]).clone()
+        processed = preprocess({"pixels": raw})["pixels"]
+        content_sweeps.append(
+            stamp(
+                processed,
+                colors_norm[0].repeat(args.sweep_steps, 1),
+                args.tag_size,
+            )
+        )
+        fixed = processed[0:1].repeat(args.sweep_steps, 1, 1, 1)
+        tag_sweeps.append(stamp(fixed, smooth_norm, args.tag_size))
+    content_sweep = torch.cat(content_sweeps)
+    tag_sweep = torch.cat(tag_sweeps)
 
     specs = [parse_checkpoint(value) for value in args.checkpoint]
     spec_by_name = {label: (run, filename) for label, run, filename in specs}
@@ -301,7 +433,7 @@ def main():
         raise ValueError(f"missing checkpoint labels: {missing}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    similarity, metrics, records = {}, {}, {}
+    similarity, summaries, per_trajectory, records = {}, {}, {}, {}
     for model_index, name in enumerate(MODEL_ORDER):
         run, filename = spec_by_name[name]
         print(f"loading {name}: {run}/{filename}", flush=True)
@@ -316,20 +448,32 @@ def main():
             for condition, values in samples.items()
         }
         gallery_embedding = passes["own"]["projection"].cpu().numpy()
-        content_embedding = encode(
+        content_embedding_flat = encode(
             model, content_sweep, device, args.batch_size
         )["projection"].cpu().numpy()
-        tag_embedding = encode(
+        tag_embedding_flat = encode(
             model, tag_sweep, device, args.batch_size
         )["projection"].cpu().numpy()
-        metrics[name] = normalized_path_metrics(
-            content_embedding, tag_embedding, gallery_embedding, args.seed + model_index
+        shape = (len(trajectory_records), args.sweep_steps, -1)
+        content_embedding = content_embedding_flat.reshape(shape)
+        tag_embedding = tag_embedding_flat.reshape(shape)
+        raw_metrics = batched_path_metrics(
+            content_embedding,
+            tag_embedding,
+            gallery_embedding,
+            args.seed + model_index,
+        )
+        per_trajectory[name] = {key: value.tolist() for key, value in raw_metrics.items()}
+        summaries[name] = summarize_paths(raw_metrics, args.seed + 100 * model_index)
+        visual_position = next(
+            i for i, (_, index, _) in enumerate(trajectory_records)
+            if index == trajectory_index
         )
         pca = PCA(n_components=2).fit(gallery_embedding)
         records[name] = {
             "gallery_2d": pca.transform(gallery_embedding),
-            "content_2d": pca.transform(content_embedding),
-            "tag_2d": pca.transform(tag_embedding),
+            "content_2d": pca.transform(content_embedding[visual_position]),
+            "tag_2d": pca.transform(tag_embedding[visual_position]),
         }
         del model, passes
         if device.type == "cuda":
@@ -341,14 +485,20 @@ def main():
     )
     render_similarity(args.out_dir, similarity)
     render_trajectory_figure(args.out_dir, records)
-    render_path_lengths(args.out_dir, metrics)
+    render_path_lengths(args.out_dir, summaries)
+    render_ratio_distribution(args.out_dir, per_trajectory, summaries)
     payload = {
         "protocol": {
             "dataset": args.dataset,
             "gallery_frames": len(frames),
             "sweep_steps": args.sweep_steps,
+            "trajectories": len(trajectory_records),
+            "trajectory_dataset_indices": [index for _, index, _ in trajectory_records],
             "trajectory_dataset_index": trajectory_index,
-            "trajectory_selection": f"largest physical path among {len(candidate_ids)} seeded candidates",
+            "trajectory_selection": (
+                "aggregate metrics use all seeded random trajectories; "
+                "PCA illustration uses the largest physical path among them"
+            ),
             "similarity": "mean-centered cosine on matched interventions",
             "path_normalization": "median pairwise distance in each model's gallery",
             "warning": "PCA is illustrative; path-length metrics are computed in full projector space",
@@ -360,7 +510,8 @@ def main():
         },
         "tag_rgb_endpoints": colors_u8.tolist(),
         "similarity": similarity,
-        "path_metrics": metrics,
+        "path_summary": summaries,
+        "path_metrics_per_trajectory": per_trajectory,
     }
     (args.out_dir / "feature-allocation.json").write_text(
         json.dumps(payload, indent=2) + "\n", encoding="utf-8"
