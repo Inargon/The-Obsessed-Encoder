@@ -45,7 +45,7 @@ def split_reacher_frame(frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def orange_fingertip(frame: np.ndarray) -> tuple[float, float]:
-    """Locate the orange distal endpoint; the white point is the fixed base."""
+    """Locate the distal orange endpoint, not the orange elbow marker."""
     rgb = np.asarray(frame)[..., :3].astype(np.int16)
     red, green, blue = np.moveaxis(rgb, -1, 0)
     mask = (
@@ -61,9 +61,55 @@ def orange_fingertip(frame: np.ndarray) -> tuple[float, float]:
     mask[-border:] = False
     mask[:, :border] = False
     mask[:, -border:] = False
-    y, x = np.nonzero(mask)
-    if len(x) == 0:
+    if not mask.any():
         raise ValueError("could not locate the orange Reacher fingertip")
+
+    # The renderer uses orange caps for both the elbow and the fingertip.
+    # Separate them, then choose the component extending farthest from the
+    # fixed shoulder at the image centre.  Averaging the full mask would land
+    # between the elbow and fingertip and falsely visualize success.
+    height, width = mask.shape
+    seen = np.zeros_like(mask, dtype=bool)
+    components: list[list[tuple[int, int]]] = []
+    for seed_y, seed_x in zip(*np.nonzero(mask)):
+        if seen[seed_y, seed_x]:
+            continue
+        stack = [(int(seed_y), int(seed_x))]
+        seen[seed_y, seed_x] = True
+        component = []
+        while stack:
+            y, x = stack.pop()
+            component.append((y, x))
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dy == 0 and dx == 0:
+                        continue
+                    ny, nx = y + dy, x + dx
+                    if (
+                        0 <= ny < height
+                        and 0 <= nx < width
+                        and mask[ny, nx]
+                        and not seen[ny, nx]
+                    ):
+                        seen[ny, nx] = True
+                        stack.append((ny, nx))
+        if len(component) >= 2:
+            components.append(component)
+    if not components:
+        raise ValueError("orange Reacher fingertip components are empty")
+
+    centre_x = 0.5 * (width - 1)
+    centre_y = 0.5 * (height - 1)
+
+    def distal_extent(component: list[tuple[int, int]]) -> float:
+        return max(
+            (x - centre_x) ** 2 + (y - centre_y) ** 2
+            for y, x in component
+        )
+
+    fingertip = max(components, key=distal_extent)
+    y = np.asarray([point[0] for point in fingertip], dtype=float)
+    x = np.asarray([point[1] for point in fingertip], dtype=float)
     return float(x.mean()), float(y.mean())
 
 

@@ -25,8 +25,8 @@ def reacher_tile(current_tip=(3, 3), goal_tip=(6, 6)):
     # Lower-left current and lower-right goal tiles.
     cx, cy = current_tip
     gx, gy = goal_tip
-    frame[10 + cy, cx] = (230, 100, 20)
-    frame[10 + gy, 10 + gx] = (230, 100, 20)
+    frame[10 + cy : 12 + cy, cx : 2 + cx] = (230, 100, 20)
+    frame[10 + gy : 12 + gy, 10 + gx : 12 + gx] = (230, 100, 20)
     return frame
 
 
@@ -43,3 +43,15 @@ def test_fingertip_geometry_measures_goal_approach():
     geometry = module.fingertip_geometry(frames)
     assert geometry["start_distance_over_width"] > 0
     assert geometry["end_distance_over_width"] == 0
+
+
+def test_orange_fingertip_chooses_distal_component_not_elbow():
+    frame = np.zeros((20, 20, 3), dtype=np.uint8)
+    orange = (230, 100, 20)
+    # Elbow close to the fixed image-centre shoulder.
+    frame[9:11, 12:14] = orange
+    # Fingertip farther away.
+    frame[2:4, 16:18] = orange
+    x, y = module.orange_fingertip(frame)
+    assert np.isclose(x, 16.5)
+    assert np.isclose(y, 2.5)
