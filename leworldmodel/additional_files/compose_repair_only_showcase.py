@@ -25,10 +25,27 @@ def green_goal_mask(frame: np.ndarray, ignore_corner: int = 12) -> np.ndarray:
     return mask
 
 
+def extract_panel(frame: np.ndarray, panel: str) -> np.ndarray:
+    """Extract agent/dataset/goal from stable-worldmodel's panel video frame."""
+    if panel not in {"agent", "dataset", "goal"}:
+        raise ValueError(f"unknown panel {panel!r}")
+    array = np.asarray(frame)
+    height, width = array.shape[:2]
+    # Saved evaluation videos concatenate three square views horizontally and
+    # may append a short label strip. Plain single-view frames pass through.
+    if width < 2 * height:
+        return array
+    panel_width = width // 3
+    index = {"agent": 0, "dataset": 1, "goal": 2}[panel]
+    left = index * panel_width
+    side = min(height, panel_width)
+    return array[:side, left : left + panel_width]
+
+
 def terminal_goal_residual(frames: list[np.ndarray], tail: int = 3) -> float:
     """Fraction of visible goal-colored pixels near termination (lower is better)."""
     selected = frames[-min(tail, len(frames)) :]
-    counts = [green_goal_mask(frame).mean() for frame in selected]
+    counts = [green_goal_mask(extract_panel(frame, "agent")).mean() for frame in selected]
     return float(np.mean(counts))
 
 
@@ -70,44 +87,70 @@ def rank_repair_only(jepa_summary: dict, repair_summary: dict) -> list[dict]:
     )
 
 
-def _fit(frame: np.ndarray, size: int = 250):
+def _fit(frame: np.ndarray, size: int = 260):
     from PIL import Image
 
     return Image.fromarray(frame).convert("RGB").resize((size, size))
 
 
-def render_pair(row: dict, output: Path, columns: int = 6) -> None:
-    from PIL import Image, ImageDraw
+def _font(size: int, *, bold: bool = False):
+    from PIL import ImageFont
+
+    name = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+    try:
+        return ImageFont.truetype(name, size=size)
+    except OSError:
+        return ImageFont.load_default()
+
+
+def render_pair(row: dict, output: Path, columns: int = 5) -> None:
+    from PIL import Image, ImageDraw, ImageOps
 
     streams = [read_video(Path(row["jepa_video"])), read_video(Path(row["repair_video"]))]
     sampled = []
     for frames in streams:
         indices = np.rint(np.linspace(0, len(frames) - 1, columns)).astype(int)
-        sampled.append([_fit(frames[index]) for index in indices])
-    left = 150
-    header = 78
+        sampled.append([_fit(extract_panel(frames[index], "agent")) for index in indices])
+    goal = _fit(extract_panel(streams[0][-1], "goal"))
+    left = 225
+    header = 112
+    gap = 14
+    goal_gap = 44
     cell = sampled[0][0].width
-    canvas = Image.new("RGB", (left + columns * cell, header + 2 * cell), "white")
+    width = left + columns * cell + (columns - 1) * gap + goal_gap + cell + 20
+    height = header + 2 * cell + gap + 24
+    canvas = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(canvas)
     draw.text(
-        (12, 10),
-        f"Matched tagged PushT — episode {row['episode']}: repair succeeds, JEPA fails",
+        (20, 14),
+        f"Matched tagged PushT — episode {row['episode']}",
         fill="black",
+        font=_font(25, bold=True),
     )
     draw.text(
-        (12, 38),
-        "Selection: smallest repair terminal goal residual (predefined pixel metric)",
+        (20, 52),
+        "EMA repair succeeds; JEPA fails  |  selected by a predefined terminal-alignment metric",
         fill="#555555",
+        font=_font(17),
     )
+    times = np.linspace(0, 100, columns).round().astype(int)
     for col in range(columns):
-        label = "start" if col == 0 else "end" if col == columns - 1 else f"t{col}"
-        draw.text((left + col * cell + 8, 58), label, fill="black")
-    labels = (("JEPA (fail)", "#d55e00"), ("EMA repair (success)", "#aa3377"))
-    for row_index, ((label, color), frames) in enumerate(zip(labels, sampled)):
-        y = header + row_index * cell
-        draw.text((12, y + cell // 2 - 10), label, fill=color)
+        label = "Start" if col == 0 else "End" if col == columns - 1 else f"{times[col]}%"
+        x = left + col * (cell + gap)
+        draw.text((x + 8, 84), label, fill="#333333", font=_font(16, bold=True))
+    labels = (("JEPA", "FAIL", "#d55e00"), ("EMA repair", "SUCCESS", "#aa3377"))
+    for row_index, ((label, outcome, color), frames) in enumerate(zip(labels, sampled)):
+        y = header + row_index * (cell + gap)
+        draw.text((20, y + cell // 2 - 30), label, fill=color, font=_font(21, bold=True))
+        draw.text((20, y + cell // 2 + 4), outcome, fill=color, font=_font(17, bold=True))
         for col, frame in enumerate(frames):
-            canvas.paste(frame, (left + col * cell, y))
+            bordered = ImageOps.expand(frame, border=2, fill="#cccccc")
+            canvas.paste(bordered, (left + col * (cell + gap), y))
+    goal_x = left + columns * cell + (columns - 1) * gap + goal_gap
+    goal_y = header + (cell + gap) // 2
+    draw.text((goal_x + 8, 84), "Goal reference", fill="#d62728", font=_font(16, bold=True))
+    goal = ImageOps.expand(goal, border=4, fill="#d62728")
+    canvas.paste(goal, (goal_x, goal_y))
     canvas.save(output, optimize=True)
 
 
@@ -139,7 +182,7 @@ def main() -> None:
     parser.add_argument("--repair-summary", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--examples", type=int, default=3)
-    parser.add_argument("--columns", type=int, default=6)
+    parser.add_argument("--columns", type=int, default=5)
     args = parser.parse_args()
     if args.out_dir.exists():
         raise SystemExit(f"Refusing to overwrite {args.out_dir}")
@@ -163,7 +206,7 @@ def main() -> None:
             "task": "tagged PushT",
             "matched_group": {"seed": jepa["seed"], "num_eval": jepa["num_eval"]},
             "eligibility": "EMA repair success and JEPA failure",
-            "ranking": "ascending repair terminal visible-goal residual; descending residual gap as tie-breaker",
+            "ranking": "ascending repair terminal visible-goal residual in the agent panel; descending residual gap as tie-breaker",
             "artifact_scope": "qualitative showcase; full-group success rates remain the quantitative result",
             "output": "PNG only; no GIF",
         },

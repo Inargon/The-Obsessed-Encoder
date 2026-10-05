@@ -74,7 +74,7 @@ def main() -> None:
             "--repair-summary", args.source / "rollouts/repair/summary.json",
             "--out-dir", campaign / "artifacts",
             "--examples", args.examples,
-            "--columns", 6,
+            "--columns", 5,
         ]
     )
     shell = "\n".join(

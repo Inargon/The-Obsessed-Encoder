@@ -26,3 +26,13 @@ def test_terminal_goal_residual_prefers_tighter_overlap_proxy():
     tight[20:22, 20:22] = [100, 180, 110]
     loose[20:28, 20:28] = [100, 180, 110]
     assert module.terminal_goal_residual([tight]) < module.terminal_goal_residual([loose])
+
+
+def test_extract_panel_removes_triptych_and_label_strip():
+    frame = np.zeros((36, 96, 3), dtype=np.uint8)
+    frame[:32, :32] = 10
+    frame[:32, 32:64] = 20
+    frame[:32, 64:96] = 30
+    assert (module.extract_panel(frame, "agent") == 10).all()
+    assert (module.extract_panel(frame, "dataset") == 20).all()
+    assert (module.extract_panel(frame, "goal") == 30).all()
