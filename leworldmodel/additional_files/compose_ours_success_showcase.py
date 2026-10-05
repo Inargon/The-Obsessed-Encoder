@@ -38,19 +38,56 @@ def terminal_agent_goal_rmse(frames: list[np.ndarray], tail: int = 3) -> float:
     return float(np.mean(values))
 
 
-def rank_successes(summary: dict) -> list[dict]:
+def red_agent_centroid(frame: np.ndarray) -> tuple[float, float]:
+    """Locate TwoRoom's blurred red agent and return its (x, y) centroid."""
+    rgb = np.asarray(frame)[..., :3].astype(np.float32)
+    red, green, blue = np.moveaxis(rgb, -1, 0)
+    # Weight by red dominance rather than using a hard binary blob boundary;
+    # this remains stable across video compression and the rendered glow.
+    weights = np.maximum(red - np.maximum(green, blue), 0.0)
+    weights[(red < 100) | (weights < 20)] = 0.0
+    total = float(weights.sum())
+    if total <= 0:
+        raise ValueError("could not locate TwoRoom's red agent")
+    y, x = np.indices(weights.shape)
+    return float((x * weights).sum() / total), float((y * weights).sum() / total)
+
+
+def is_cross_room(frames: list[np.ndarray]) -> tuple[bool, dict]:
+    """Return whether TwoRoom start and goal lie on opposite wall sides."""
+    start = extract_panel(frames[0], "agent")
+    goal = extract_panel(frames[-1], "goal")
+    start_x, start_y = red_agent_centroid(start)
+    goal_x, goal_y = red_agent_centroid(goal)
+    divider_x = 0.5 * start.shape[1]
+    cross_room = (start_x - divider_x) * (goal_x - divider_x) < 0
+    return bool(cross_room), {
+        "start_agent_xy": [start_x, start_y],
+        "goal_agent_xy": [goal_x, goal_y],
+        "divider_x": divider_x,
+        "start_side": "left" if start_x < divider_x else "right",
+        "goal_side": "left" if goal_x < divider_x else "right",
+    }
+
+
+def rank_successes(summary: dict, task: str) -> list[dict]:
     ranked = []
     video_dir = Path(summary["video_dir"])
     for episode in summary["successful_episode_indices"]:
         video = video_dir / f"env_{int(episode)}.mp4"
         frames = read_video(video)
-        ranked.append(
-            {
-                "episode": int(episode),
-                "terminal_agent_goal_rmse": terminal_agent_goal_rmse(frames),
-                "video": str(video),
-            }
-        )
+        row = {
+            "episode": int(episode),
+            "terminal_agent_goal_rmse": terminal_agent_goal_rmse(frames),
+            "video": str(video),
+        }
+        if task == "tworoom":
+            eligible, geometry = is_cross_room(frames)
+            row.update(geometry)
+            row["cross_room"] = eligible
+            if not eligible:
+                continue
+        ranked.append(row)
     return sorted(ranked, key=lambda row: (row["terminal_agent_goal_rmse"], row["episode"]))
 
 
@@ -76,9 +113,14 @@ def render_example(task: str, row: dict, output: Path, columns: int = 5) -> None
         fill="black",
         font=_font(25, bold=True),
     )
+    subtitle = (
+        "Successful cross-room rollout; start and goal are on opposite wall sides"
+        if task == "tworoom"
+        else "Successful rollout selected by terminal agent-to-goal alignment"
+    )
     draw.text(
         (20, 52),
-        "Successful rollout selected by terminal agent-to-goal alignment",
+        subtitle,
         fill="#555555",
         font=_font(17),
     )
@@ -139,6 +181,10 @@ def main() -> None:
         "protocol": {
             "method_display": "Ours",
             "selection": "successful episodes ranked by terminal agent-to-goal RGB RMSE",
+            "tworoom_eligibility": (
+                "start and goal red-agent centroids must lie on opposite sides "
+                "of the central wall"
+            ),
             "per_task": args.per_task,
             "output": "PNG only; no GIF",
             "scope": "qualitative showcase; complete fixed-group success rates remain quantitative evidence",
@@ -152,7 +198,7 @@ def main() -> None:
     for task in tasks:
         summary_path = args.source / task / "summary.json"
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
-        ranked = rank_successes(summary)
+        ranked = rank_successes(summary, task)
         if len(ranked) < args.per_task:
             raise ValueError(f"{task}: only {len(ranked)} successful episodes")
         selected = ranked[: args.per_task]
