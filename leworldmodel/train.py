@@ -20,6 +20,7 @@ from additional_files import callbacks
 from additional_files.allocation_regularizers import AllocationRegularizer
 from additional_files.control_objectives import ControlObjective
 from additional_files.delta_jepa import LatentDifferenceActionDecoder
+from additional_files.jepa_bisim import RewardFreeBisimulationObjective
 from additional_files.aligned_gradient_routing import control_aligned_prediction_surrogate
 from additional_files.bloop_gradient_routing import (
     ParameterSpaceBloop,
@@ -246,6 +247,15 @@ def lejepa_forward(self, batch, stage, cfg):
         output.update(delta)
         output["loss"] = output["loss"] + output["delta_jepa_loss"]
 
+    # Matched JEPA-Bisim adaptation.  The projector is configured as the
+    # reduced planning state; this reward-free metric makes distances reflect
+    # action-conditioned successor distances while the ordinary JEPA loss
+    # continues to train the same latent dynamics.
+    if hasattr(self.model, "bisimulation_objective"):
+        bisim = self.model.bisimulation_objective(emb, pred_emb)
+        output.update(bisim)
+        output["loss"] = output["loss"] + output["bisim_loss"]
+
     metrics_dict = {
         f"{stage}/{k}": v.detach()
         for k, v in output.items()
@@ -275,6 +285,7 @@ def lejepa_forward(self, batch, stage, cfg):
         or k.startswith("counterfactual_")
         or k.startswith("component_grad/")
         or k.startswith("delta_")
+        or k.startswith("bisim_")
     }
     self.log_dict(metrics_dict, on_step=True, sync_dist=True)
     return output
@@ -363,6 +374,14 @@ def run(cfg):
             embed_dim=cfg.embed_dim,
             action_dim=cfg.model.action_encoder.input_dim,
             **delta_kwargs,
+        )
+
+    bisim_cfg = cfg.loss.get("bisimulation")
+    if bisim_cfg and bisim_cfg.get("enabled", True):
+        bisim_kwargs = OmegaConf.to_container(bisim_cfg, resolve=True)
+        bisim_kwargs.pop("enabled", None)
+        world_model.bisimulation_objective = RewardFreeBisimulationObjective(
+            **bisim_kwargs
         )
 
     # Stage 2 is configured only after all optional heads exist, so a Stage-1
