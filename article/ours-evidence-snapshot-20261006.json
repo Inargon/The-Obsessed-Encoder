@@ -1,0 +1,123 @@
+{
+  "snapshot_date": "2026-10-06",
+  "method_display": "Ours",
+  "status": "single-training-seed, 50-episode pilot unless noted",
+  "cem_evaluation": {
+    "evaluation_seed": 42,
+    "num_episodes": 50,
+    "results": {
+      "clean_pusht": 0.92,
+      "tagged_pusht": 0.88,
+      "clean_reacher": 0.88,
+      "clean_tworoom": 0.96,
+      "clean_cube": 0.80
+    },
+    "provenance": {
+      "clean_pusht": "bloop-clean-pusht-final-20261004/cem-seed42.json",
+      "tagged_pusht": "bloop-final-evals-20261003/tagged-pusht-seed42.json",
+      "clean_reacher": "bloop-final-reacher-20261003-044551/reacher/reacher-historical.txt",
+      "clean_tworoom": "bloop-final-evals-20261003/tworoom-seed42.json",
+      "clean_cube": "bloop-final-evals-20261003/cube-epoch10-seed42.json"
+    }
+  },
+  "gcidm_evaluation": {
+    "evaluation_seed": 42,
+    "num_episodes": 50,
+    "goal_offset": 25,
+    "evaluation_budget": 50,
+    "epochs": 200,
+    "results": {
+      "clean_cube": {
+        "success_rate": 1.0,
+        "cem_reference": 0.80,
+        "plan_ms": 63.73
+      },
+      "clean_reacher": {
+        "success_rate": 1.0,
+        "cem_reference": 0.88,
+        "plan_ms": 67.28
+      },
+      "clean_tworoom": {
+        "success_rate": 1.0,
+        "cem_reference": 0.96,
+        "plan_ms": 62.70
+      },
+      "clean_pusht": {
+        "success_rate": 0.86,
+        "cem_reference": 0.92,
+        "plan_ms": 64.68
+      }
+    }
+  },
+  "tagged_pusht_probe_projection_r2": {
+    "jepa": {
+      "pusher": 0.2341,
+      "block_xy": 0.3773,
+      "angle": -0.1678,
+      "tag_rgb": 0.9455
+    },
+    "ours": {
+      "pusher": 0.9963,
+      "block_xy": 0.9534,
+      "angle": 0.6894,
+      "tag_rgb": 0.9191
+    }
+  },
+  "tagged_pusht_feature_allocation": {
+    "metric": "tag-only latent path length / physical-content latent path length",
+    "jepa": {
+      "geometric_mean": 20.8712,
+      "ci95": [18.8516, 23.1068],
+      "median": 20.8924,
+      "fraction_below_one": 0.0
+    },
+    "ours": {
+      "geometric_mean": 1.42,
+      "ci95": [1.3357, 1.5093],
+      "median": 1.3831,
+      "fraction_below_one": 0.1328
+    }
+  },
+  "tagged_pusht_counterfactual_both_tags": {
+    "pair_order_reversal": {
+      "jepa": 0.0984,
+      "full": 0.0347,
+      "cycle": 0.0362,
+      "ours": 0.0227
+    },
+    "selected_candidate_changed": {
+      "jepa": 0.6953,
+      "full": 0.0859,
+      "cycle": 0.1016,
+      "ours": 0.0703
+    },
+    "cost_rmse_over_reference_std": {
+      "jepa": 0.5836,
+      "full": 0.1758,
+      "cycle": 0.1678,
+      "ours": 0.1078
+    },
+    "paired_bootstrap_ours_minus_comparator_ci95": {
+      "jepa": {
+        "pair_order_reversal": [-0.0854, -0.0661],
+        "selected_candidate_changed": [-0.7188, -0.5312],
+        "cost_rmse_over_reference_std": [-0.6134, -0.3752]
+      },
+      "full": {
+        "pair_order_reversal": [-0.0154, -0.0087],
+        "selected_candidate_changed": [-0.0781, 0.0469],
+        "cost_rmse_over_reference_std": [-0.0817, -0.0548]
+      },
+      "cycle": {
+        "pair_order_reversal": [-0.0169, -0.0102],
+        "selected_candidate_changed": [-0.0938, 0.0312],
+        "cost_rmse_over_reference_std": [-0.0758, -0.0450]
+      }
+    }
+  },
+  "known_inconsistencies": [
+    "The tagged-PushT final-eval JSON reports 0.88, while a later matched-rollout artifact records 0.90; do not merge these until protocol provenance is audited.",
+    "The older article/results_snapshot.json describes a different gated-orthogonal method and must not be cited as Ours.",
+    "The latent straight-line diagnostic favors Full/Cycle over Ours on several geometry metrics and is a boundary analysis, not primary superiority evidence."
+  ]
+}
