@@ -44,88 +44,21 @@ def split_reacher_frame(frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return array[half_height:, :half_width], array[half_height:, half_width:]
 
 
-def orange_fingertip(frame: np.ndarray) -> tuple[float, float]:
-    """Locate the distal orange endpoint, not the orange elbow marker."""
-    rgb = np.asarray(frame)[..., :3].astype(np.int16)
-    red, green, blue = np.moveaxis(rgb, -1, 0)
-    mask = (
-        (red > 150)
-        & (red > green + 25)
-        & (green > 40)
-        & (green < 210)
-        & (blue < 130)
-    )
-    # Ignore tile borders, which can acquire warm compression artifacts.
-    border = max(2, min(mask.shape) // 50)
-    mask[:border] = False
-    mask[-border:] = False
-    mask[:, :border] = False
-    mask[:, -border:] = False
-    if not mask.any():
-        raise ValueError("could not locate the orange Reacher fingertip")
-
-    # The renderer uses orange caps for both the elbow and the fingertip.
-    # Separate them, then choose the component extending farthest from the
-    # fixed shoulder at the image centre.  Averaging the full mask would land
-    # between the elbow and fingertip and falsely visualize success.
-    height, width = mask.shape
-    seen = np.zeros_like(mask, dtype=bool)
-    components: list[list[tuple[int, int]]] = []
-    for seed_y, seed_x in zip(*np.nonzero(mask)):
-        if seen[seed_y, seed_x]:
-            continue
-        stack = [(int(seed_y), int(seed_x))]
-        seen[seed_y, seed_x] = True
-        component = []
-        while stack:
-            y, x = stack.pop()
-            component.append((y, x))
-            for dy in (-1, 0, 1):
-                for dx in (-1, 0, 1):
-                    if dy == 0 and dx == 0:
-                        continue
-                    ny, nx = y + dy, x + dx
-                    if (
-                        0 <= ny < height
-                        and 0 <= nx < width
-                        and mask[ny, nx]
-                        and not seen[ny, nx]
-                    ):
-                        seen[ny, nx] = True
-                        stack.append((ny, nx))
-        if len(component) >= 2:
-            components.append(component)
-    if not components:
-        raise ValueError("orange Reacher fingertip components are empty")
-
-    centre_x = 0.5 * (width - 1)
-    centre_y = 0.5 * (height - 1)
-
-    def distal_extent(component: list[tuple[int, int]]) -> float:
-        return max(
-            (x - centre_x) ** 2 + (y - centre_y) ** 2
-            for y, x in component
-        )
-
-    fingertip = max(components, key=distal_extent)
-    y = np.asarray([point[0] for point in fingertip], dtype=float)
-    x = np.asarray([point[1] for point in fingertip], dtype=float)
-    return float(x.mean()), float(y.mean())
+def pose_rmse(current: np.ndarray, goal: np.ndarray) -> float:
+    """Image-space pose difference used only to rank qualitative examples."""
+    delta = (
+        np.asarray(current)[..., :3].astype(np.float32)
+        - np.asarray(goal)[..., :3].astype(np.float32)
+    ) / 255.0
+    return float(np.sqrt(np.mean(delta**2)))
 
 
-def fingertip_geometry(frames: list[np.ndarray]) -> dict:
+def pose_geometry(frames: list[np.ndarray]) -> dict:
     current_start, goal = split_reacher_frame(frames[0])
     current_end, _ = split_reacher_frame(frames[-1])
-    target = np.asarray(orange_fingertip(goal))
-    start_tip = np.asarray(orange_fingertip(current_start))
-    end_tip = np.asarray(orange_fingertip(current_end))
-    width = float(current_start.shape[1])
     return {
-        "target_xy": target.tolist(),
-        "start_tip_xy": start_tip.tolist(),
-        "end_tip_xy": end_tip.tolist(),
-        "start_distance_over_width": float(np.linalg.norm(start_tip - target) / width),
-        "end_distance_over_width": float(np.linalg.norm(end_tip - target) / width),
+        "start_pose_rmse": pose_rmse(current_start, goal),
+        "end_pose_rmse": pose_rmse(current_end, goal),
     }
 
 
@@ -138,7 +71,7 @@ def rank_successes(source: Path, successes: list[bool]) -> list[dict]:
         if not success:
             continue
         frames = read_video(video)
-        geometry = fingertip_geometry(frames)
+        geometry = pose_geometry(frames)
         ranked.append(
             {
                 "episode": episode,
@@ -146,48 +79,41 @@ def rank_successes(source: Path, successes: list[bool]) -> list[dict]:
                 **geometry,
             }
         )
-    # Prefer examples that begin far from the target and visibly finish near
-    # it.  Success eligibility itself always comes from the simulator label.
+    # Prefer successful examples whose initial rendered pose differs most from
+    # the goal. Success eligibility itself always comes from the simulator.
     return sorted(
         ranked,
         key=lambda row: (
-            -row["start_distance_over_width"],
-            row["end_distance_over_width"],
+            -row["start_pose_rmse"],
+            row["end_pose_rmse"],
             row["episode"],
         ),
     )
 
 
-def annotate_target(
-    frame: np.ndarray,
-    target_xy: tuple[float, float],
-    tip_xy: tuple[float, float],
-):
-    """Overlay a goal-derived red target disk and preserve the orange tip."""
-    from PIL import Image, ImageDraw
+def foreground_mask(frame: np.ndarray) -> np.ndarray:
+    """Extract the rendered arm by differencing it from the blue background."""
+    rgb = np.asarray(frame)[..., :3].astype(np.int16)
+    red, green, blue = np.moveaxis(rgb, -1, 0)
+    # Reacher's links and joints are warm yellow/orange/white, while the
+    # background is blue. This deliberately excludes the blue floor/sky.
+    mask = (red > blue + 18) & (green > blue + 8) & (red > 105)
+    border = max(1, min(mask.shape) // 80)
+    mask[:border] = False
+    mask[-border:] = False
+    mask[:, :border] = False
+    mask[:, -border:] = False
+    return mask
 
-    image = Image.fromarray(np.asarray(frame)[..., :3]).convert("RGBA")
-    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    radius = max(7, round(min(image.size) * 0.075))
-    tx, ty = target_xy
-    draw.ellipse(
-        (tx - radius, ty - radius, tx + radius, ty + radius),
-        fill=(235, 65, 65, 105),
-        outline=(210, 25, 25, 255),
-        width=max(2, radius // 4),
-    )
-    image = Image.alpha_composite(image, overlay)
-    draw = ImageDraw.Draw(image)
-    px, py = tip_xy
-    tip_radius = max(3, radius // 3)
-    draw.ellipse(
-        (px - tip_radius, py - tip_radius, px + tip_radius, py + tip_radius),
-        fill=(245, 145, 35, 255),
-        outline=(255, 255, 255, 255),
-        width=max(1, tip_radius // 2),
-    )
-    return image.convert("RGB")
+
+def overlay_goal_pose(current: np.ndarray, goal: np.ndarray) -> np.ndarray:
+    """Overlay the exact recorded goal arm as a translucent magenta ghost."""
+    current_rgb = np.asarray(current)[..., :3].astype(np.float32)
+    goal_mask = foreground_mask(goal)
+    output = current_rgb.copy()
+    magenta = np.asarray([205.0, 45.0, 145.0])
+    output[goal_mask] = 0.48 * output[goal_mask] + 0.52 * magenta
+    return np.clip(output, 0, 255).astype(np.uint8)
 
 
 def render_example(row: dict, output: Path, columns: int = 5) -> None:
@@ -195,15 +121,11 @@ def render_example(row: dict, output: Path, columns: int = 5) -> None:
 
     frames = read_video(Path(row["video"]))
     indices = np.rint(np.linspace(0, len(frames) - 1, columns)).astype(int)
-    target = tuple(row["target_xy"])
     sampled = []
-    distances = []
     for index in indices:
-        current, _ = split_reacher_frame(frames[index])
-        tip = orange_fingertip(current)
-        annotated = annotate_target(current, target, tip)
+        current, goal = split_reacher_frame(frames[index])
+        annotated = overlay_goal_pose(current, goal)
         sampled.append(_fit(np.asarray(annotated)))
-        distances.append(float(np.linalg.norm(np.asarray(tip) - np.asarray(target)) / current.shape[1]))
     left = 170
     header = 112
     gap = 14
@@ -220,7 +142,7 @@ def render_example(row: dict, output: Path, columns: int = 5) -> None:
     )
     draw.text(
         (20, 52),
-        "Red disk = goal region; orange point = controlled fingertip",
+        "Yellow = current arm; magenta ghost = exact recorded goal pose",
         fill="#555555",
         font=_font(17),
     )
@@ -236,13 +158,11 @@ def render_example(row: dict, output: Path, columns: int = 5) -> None:
             ImageOps.expand(frame, border=2, fill="#cccccc"),
             (left + column * (cell + gap), header),
         )
-        distance_label = f"d/W={distances[column]:.3f}"
-        if column == columns - 1:
-            distance_label += "  SUCCESS"
+        distance_label = "SIMULATOR SUCCESS" if column == columns - 1 else ""
         draw.text(
             (left + column * (cell + gap) + 8, header + cell + 8),
             distance_label,
-            fill="#18864b" if column == columns - 1 else "#555555",
+            fill="#18864b",
             font=_font(15, bold=column == columns - 1),
         )
     canvas.save(output, optimize=True)
@@ -302,12 +222,17 @@ def main() -> None:
             "runtime": "pinned historical Python 3.10 stack",
             "eligibility": "episode_successes is true in the historical 50-episode evaluation",
             "ranking": (
-                "descending initial fingertip-to-goal distance; ascending terminal "
-                "distance as tie-breaker"
+                "descending initial current-versus-goal image RMSE; ascending terminal "
+                "image RMSE as tie-breaker; ranking never changes success eligibility"
             ),
             "visualization": (
                 "latest current view extracted from the lower-left historical tile; "
-                "red target disk derived from the lower-right goal fingertip"
+                "exact lower-right recorded goal arm overlaid as a translucent magenta ghost; "
+                "no synthetic target disk or success threshold"
+            ),
+            "evaluation": (
+                "unchanged historical JEPA protocol: fixed seed-42 50-episode group, "
+                "qpos_match target, goal offset 25, evaluation budget 50"
             ),
             "selection_scope": "qualitative showcase; the full-group success rate remains quantitative evidence",
             "output": "PNG only; no GIF",

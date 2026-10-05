@@ -38,20 +38,18 @@ def test_split_reacher_frame_uses_latest_lower_row():
     assert tuple(goal[6, 6]) == (230, 100, 20)
 
 
-def test_fingertip_geometry_measures_goal_approach():
+def test_pose_geometry_measures_goal_approach():
     frames = [reacher_tile((3, 3), (6, 6)), reacher_tile((6, 6), (6, 6))]
-    geometry = module.fingertip_geometry(frames)
-    assert geometry["start_distance_over_width"] > 0
-    assert geometry["end_distance_over_width"] == 0
+    geometry = module.pose_geometry(frames)
+    assert geometry["start_pose_rmse"] > 0
+    assert geometry["end_pose_rmse"] == 0
 
 
-def test_orange_fingertip_chooses_distal_component_not_elbow():
-    frame = np.zeros((20, 20, 3), dtype=np.uint8)
-    orange = (230, 100, 20)
-    # Elbow close to the fixed image-centre shoulder.
-    frame[9:11, 12:14] = orange
-    # Fingertip farther away.
-    frame[2:4, 16:18] = orange
-    x, y = module.orange_fingertip(frame)
-    assert np.isclose(x, 16.5)
-    assert np.isclose(y, 2.5)
+def test_goal_pose_overlay_uses_exact_goal_pixels_without_fake_geometry():
+    current = np.full((10, 10, 3), (30, 70, 110), dtype=np.uint8)
+    goal = current.copy()
+    goal[6:8, 7:9] = (230, 160, 25)
+    rendered = module.overlay_goal_pose(current, goal)
+    assert np.array_equal(rendered[1, 1], current[1, 1])
+    assert rendered[6, 7, 0] > current[6, 7, 0]
+    assert rendered[6, 7, 2] > current[6, 7, 2]

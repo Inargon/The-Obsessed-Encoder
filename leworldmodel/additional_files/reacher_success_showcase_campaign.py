@@ -32,7 +32,8 @@ def main() -> None:
     plan = {
         "artifact": "top-2 successful Ours historical Reacher rollout PNGs",
         "source": str(args.source),
-        "selection": "successful episodes ranked by initial fingertip-to-goal distance",
+        "selection": "successful episodes ranked by initial current-versus-goal pose difference",
+        "evaluation": "unchanged historical JEPA fixed-group protocol; visualization only",
         "reruns_evaluation": False,
         "missing": missing,
     }
