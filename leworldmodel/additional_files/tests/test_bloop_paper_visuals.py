@@ -78,3 +78,12 @@ def test_campaign_contains_all_three_visual_families():
     assert "plot_bloop_training_mechanism.py" in text
     assert "compose_matched_rollouts.py" in text
     assert "BLOOP_PAPER_VISUALS_JOB" in text
+
+
+def test_ratio_plot_uses_shared_jitter_for_matched_endpoints():
+    text = (ROOT / "diagnose_feature_allocation_visuals.py").read_text(
+        encoding="utf-8"
+    )
+    assert "pair_jitter" in text
+    assert '"bloop": "Ours"' in text
+    assert "parity threshold (tag / physical = 1)" in text

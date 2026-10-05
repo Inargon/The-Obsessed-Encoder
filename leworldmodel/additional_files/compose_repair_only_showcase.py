@@ -129,7 +129,7 @@ def render_pair(row: dict, output: Path, columns: int = 5) -> None:
     )
     draw.text(
         (20, 52),
-        "EMA repair succeeds; JEPA fails  |  selected by a predefined terminal-alignment metric",
+        "Ours succeeds; JEPA fails  |  selected by a predefined terminal-alignment metric",
         fill="#555555",
         font=_font(17),
     )
@@ -138,7 +138,7 @@ def render_pair(row: dict, output: Path, columns: int = 5) -> None:
         label = "Start" if col == 0 else "End" if col == columns - 1 else f"{times[col]}%"
         x = left + col * (cell + gap)
         draw.text((x + 8, 84), label, fill="#333333", font=_font(16, bold=True))
-    labels = (("JEPA", "FAIL", "#d55e00"), ("EMA repair", "SUCCESS", "#aa3377"))
+    labels = (("JEPA", "FAIL", "#d55e00"), ("Ours", "SUCCESS", "#aa3377"))
     for row_index, ((label, outcome, color), frames) in enumerate(zip(labels, sampled)):
         y = header + row_index * (cell + gap)
         draw.text((20, y + cell // 2 - 30), label, fill=color, font=_font(21, bold=True))
@@ -166,7 +166,7 @@ def render_overview(selected: list[dict], image_paths: list[Path], output: Path)
     draw = ImageDraw.Draw(canvas)
     draw.text(
         (12, 12),
-        "Matched qualitative examples: EMA repair succeeds while JEPA fails",
+        "Matched qualitative examples: Ours succeeds while JEPA fails",
         fill="black",
     )
     y = title_height
@@ -205,7 +205,7 @@ def main() -> None:
         "protocol": {
             "task": "tagged PushT",
             "matched_group": {"seed": jepa["seed"], "num_eval": jepa["num_eval"]},
-            "eligibility": "EMA repair success and JEPA failure",
+            "eligibility": "Ours success and JEPA failure",
             "ranking": "ascending repair terminal visible-goal residual in the agent panel; descending residual gap as tie-breaker",
             "artifact_scope": "qualitative showcase; full-group success rates remain the quantitative result",
             "output": "PNG only; no GIF",

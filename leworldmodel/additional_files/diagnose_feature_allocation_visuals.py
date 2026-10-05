@@ -17,7 +17,7 @@ import numpy as np
 
 
 MODEL_ORDER = ("jepa", "bloop")
-DISPLAY = {"jepa": "JEPA", "bloop": "EMA orthogonal repair"}
+DISPLAY = {"jepa": "JEPA", "bloop": "Ours"}
 COLORS = {"jepa": "#d55e00", "bloop": "#cc79a7"}
 
 
@@ -299,10 +299,22 @@ def render_ratio_distribution(out_dir, per_trajectory, summaries):
         for name in MODEL_ORDER
     ]
     count = min(map(len, values))
+    if any(len(value) != count for value in values):
+        raise ValueError("matched trajectory arrays have different lengths")
+    # One shared horizontal offset per matched trajectory.  Both scatter
+    # endpoints and the connecting segment use these exact coordinates, so
+    # the visual pairing is faithful rather than merely index-aligned.
+    pair_jitter = rng.uniform(-0.08, 0.08, size=count)
     for index in range(count):
-        axis.plot(x, [values[0][index], values[1][index]], color="0.80", lw=0.55, alpha=0.30)
+        axis.plot(
+            x + pair_jitter[index],
+            [values[0][index], values[1][index]],
+            color="0.80",
+            lw=0.55,
+            alpha=0.30,
+        )
     for model_index, (name, raw) in enumerate(zip(MODEL_ORDER, values)):
-        jitter = rng.uniform(-0.08, 0.08, size=len(raw))
+        jitter = pair_jitter
         axis.scatter(
             np.full(len(raw), x[model_index]) + jitter,
             raw,
@@ -325,7 +337,13 @@ def render_ratio_distribution(out_dir, per_trajectory, summaries):
             ms=7,
             zorder=5,
         )
-    axis.axhline(1.0, color="0.25", ls="--", lw=1.2, label="equal allocation")
+    axis.axhline(
+        1.0,
+        color="0.25",
+        ls="--",
+        lw=1.2,
+        label="parity threshold (tag / physical = 1)",
+    )
     axis.set_yscale("log")
     axis.set_xticks(x, [DISPLAY[name] for name in MODEL_ORDER])
     axis.set_ylabel("Tag-only / physical-content latent path length")
