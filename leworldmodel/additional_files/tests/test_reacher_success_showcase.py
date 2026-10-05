@@ -20,9 +20,26 @@ def test_parse_historical_multiline_metrics():
     assert mask == [True, False, True, True]
 
 
-def test_visual_motion_score_prefers_visible_change():
-    still = [np.zeros((8, 8, 3), dtype=np.uint8) for _ in range(3)]
-    moving = [frame.copy() for frame in still]
-    moving[-1][:] = 255
-    assert module.visual_motion_score(still) == 0.0
-    assert module.visual_motion_score(moving) > module.visual_motion_score(still)
+def reacher_tile(current_tip=(3, 3), goal_tip=(6, 6)):
+    frame = np.zeros((20, 20, 3), dtype=np.uint8)
+    # Lower-left current and lower-right goal tiles.
+    cx, cy = current_tip
+    gx, gy = goal_tip
+    frame[10 + cy, cx] = (230, 100, 20)
+    frame[10 + gy, 10 + gx] = (230, 100, 20)
+    return frame
+
+
+def test_split_reacher_frame_uses_latest_lower_row():
+    current, goal = module.split_reacher_frame(reacher_tile())
+    assert current.shape == (10, 10, 3)
+    assert goal.shape == (10, 10, 3)
+    assert tuple(current[3, 3]) == (230, 100, 20)
+    assert tuple(goal[6, 6]) == (230, 100, 20)
+
+
+def test_fingertip_geometry_measures_goal_approach():
+    frames = [reacher_tile((3, 3), (6, 6)), reacher_tile((6, 6), (6, 6))]
+    geometry = module.fingertip_geometry(frames)
+    assert geometry["start_distance_over_width"] > 0
+    assert geometry["end_distance_over_width"] == 0

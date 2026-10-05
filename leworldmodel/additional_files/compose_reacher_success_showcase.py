@@ -29,12 +29,58 @@ def parse_historical_metrics(text: str) -> tuple[float, list[bool]]:
     return float(rate_match.group(1)) / 100.0, [value == "True" for value in mask]
 
 
-def visual_motion_score(frames: list[np.ndarray], samples: int = 9) -> float:
-    """Measure visible state displacement from the rollout's initial frame."""
-    indices = np.rint(np.linspace(0, len(frames) - 1, min(samples, len(frames)))).astype(int)
-    selected = [np.asarray(frames[index])[..., :3].astype(np.float32) / 255.0 for index in indices]
-    initial = selected[0]
-    return float(max(np.sqrt(np.mean((frame - initial) ** 2)) for frame in selected[1:]))
+def split_reacher_frame(frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Extract the latest current and goal views from the historical 2x2 tile.
+
+    The historical recorder stores two context frames down the left column and
+    two goal frames down the right column.  The lower row is the latest pair.
+    """
+    array = np.asarray(frame)[..., :3]
+    height, width = array.shape[:2]
+    if height < 2 or width < 2:
+        raise ValueError(f"invalid historical Reacher frame shape: {array.shape}")
+    half_height = height // 2
+    half_width = width // 2
+    return array[half_height:, :half_width], array[half_height:, half_width:]
+
+
+def orange_fingertip(frame: np.ndarray) -> tuple[float, float]:
+    """Locate the orange distal endpoint; the white point is the fixed base."""
+    rgb = np.asarray(frame)[..., :3].astype(np.int16)
+    red, green, blue = np.moveaxis(rgb, -1, 0)
+    mask = (
+        (red > 150)
+        & (red > green + 25)
+        & (green > 40)
+        & (green < 210)
+        & (blue < 130)
+    )
+    # Ignore tile borders, which can acquire warm compression artifacts.
+    border = max(2, min(mask.shape) // 50)
+    mask[:border] = False
+    mask[-border:] = False
+    mask[:, :border] = False
+    mask[:, -border:] = False
+    y, x = np.nonzero(mask)
+    if len(x) == 0:
+        raise ValueError("could not locate the orange Reacher fingertip")
+    return float(x.mean()), float(y.mean())
+
+
+def fingertip_geometry(frames: list[np.ndarray]) -> dict:
+    current_start, goal = split_reacher_frame(frames[0])
+    current_end, _ = split_reacher_frame(frames[-1])
+    target = np.asarray(orange_fingertip(goal))
+    start_tip = np.asarray(orange_fingertip(current_start))
+    end_tip = np.asarray(orange_fingertip(current_end))
+    width = float(current_start.shape[1])
+    return {
+        "target_xy": target.tolist(),
+        "start_tip_xy": start_tip.tolist(),
+        "end_tip_xy": end_tip.tolist(),
+        "start_distance_over_width": float(np.linalg.norm(start_tip - target) / width),
+        "end_distance_over_width": float(np.linalg.norm(end_tip - target) / width),
+    }
 
 
 def rank_successes(source: Path, successes: list[bool]) -> list[dict]:
@@ -46,14 +92,56 @@ def rank_successes(source: Path, successes: list[bool]) -> list[dict]:
         if not success:
             continue
         frames = read_video(video)
+        geometry = fingertip_geometry(frames)
         ranked.append(
             {
                 "episode": episode,
-                "visual_motion_score": visual_motion_score(frames),
                 "video": str(video),
+                **geometry,
             }
         )
-    return sorted(ranked, key=lambda row: (-row["visual_motion_score"], row["episode"]))
+    # Prefer examples that begin far from the target and visibly finish near
+    # it.  Success eligibility itself always comes from the simulator label.
+    return sorted(
+        ranked,
+        key=lambda row: (
+            -row["start_distance_over_width"],
+            row["end_distance_over_width"],
+            row["episode"],
+        ),
+    )
+
+
+def annotate_target(
+    frame: np.ndarray,
+    target_xy: tuple[float, float],
+    tip_xy: tuple[float, float],
+):
+    """Overlay a goal-derived red target disk and preserve the orange tip."""
+    from PIL import Image, ImageDraw
+
+    image = Image.fromarray(np.asarray(frame)[..., :3]).convert("RGBA")
+    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    radius = max(7, round(min(image.size) * 0.075))
+    tx, ty = target_xy
+    draw.ellipse(
+        (tx - radius, ty - radius, tx + radius, ty + radius),
+        fill=(235, 65, 65, 105),
+        outline=(210, 25, 25, 255),
+        width=max(2, radius // 4),
+    )
+    image = Image.alpha_composite(image, overlay)
+    draw = ImageDraw.Draw(image)
+    px, py = tip_xy
+    tip_radius = max(3, radius // 3)
+    draw.ellipse(
+        (px - tip_radius, py - tip_radius, px + tip_radius, py + tip_radius),
+        fill=(245, 145, 35, 255),
+        outline=(255, 255, 255, 255),
+        width=max(1, tip_radius // 2),
+    )
+    return image.convert("RGB")
 
 
 def render_example(row: dict, output: Path, columns: int = 5) -> None:
@@ -61,13 +149,21 @@ def render_example(row: dict, output: Path, columns: int = 5) -> None:
 
     frames = read_video(Path(row["video"]))
     indices = np.rint(np.linspace(0, len(frames) - 1, columns)).astype(int)
-    sampled = [_fit(frames[index]) for index in indices]
+    target = tuple(row["target_xy"])
+    sampled = []
+    distances = []
+    for index in indices:
+        current, _ = split_reacher_frame(frames[index])
+        tip = orange_fingertip(current)
+        annotated = annotate_target(current, target, tip)
+        sampled.append(_fit(np.asarray(annotated)))
+        distances.append(float(np.linalg.norm(np.asarray(tip) - np.asarray(target)) / current.shape[1]))
     left = 170
     header = 112
     gap = 14
     cell = sampled[0].width
     width = left + columns * cell + (columns - 1) * gap + 20
-    height = header + cell + 28
+    height = header + cell + 56
     canvas = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(canvas)
     draw.text(
@@ -78,7 +174,7 @@ def render_example(row: dict, output: Path, columns: int = 5) -> None:
     )
     draw.text(
         (20, 52),
-        "Successful rollout under the pinned historical protocol",
+        "Red disk = goal region; orange point = controlled fingertip",
         fill="#555555",
         font=_font(17),
     )
@@ -93,6 +189,15 @@ def render_example(row: dict, output: Path, columns: int = 5) -> None:
         canvas.paste(
             ImageOps.expand(frame, border=2, fill="#cccccc"),
             (left + column * (cell + gap), header),
+        )
+        distance_label = f"d/W={distances[column]:.3f}"
+        if column == columns - 1:
+            distance_label += "  SUCCESS"
+        draw.text(
+            (left + column * (cell + gap) + 8, header + cell + 8),
+            distance_label,
+            fill="#18864b" if column == columns - 1 else "#555555",
+            font=_font(15, bold=column == columns - 1),
         )
     canvas.save(output, optimize=True)
 
@@ -150,7 +255,14 @@ def main() -> None:
             "method_display": "Ours",
             "runtime": "pinned historical Python 3.10 stack",
             "eligibility": "episode_successes is true in the historical 50-episode evaluation",
-            "ranking": "descending maximum RGB displacement from the initial frame",
+            "ranking": (
+                "descending initial fingertip-to-goal distance; ascending terminal "
+                "distance as tie-breaker"
+            ),
+            "visualization": (
+                "latest current view extracted from the lower-left historical tile; "
+                "red target disk derived from the lower-right goal fingertip"
+            ),
             "selection_scope": "qualitative showcase; the full-group success rate remains quantitative evidence",
             "output": "PNG only; no GIF",
         },
