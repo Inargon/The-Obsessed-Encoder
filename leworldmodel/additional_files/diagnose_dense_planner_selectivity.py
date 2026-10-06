@@ -238,12 +238,27 @@ def main() -> None:
         # context: B,T,C,H,W; goal: B,1,C,H,W; plans: B,K,L,A
         batch = context.shape[0]
         candidates = plans.shape[1]
+        if goal.shape[0] != batch or plans.shape[0] != batch:
+            raise ValueError("context, goal, and plans must share their batch axis")
+
+        # JEPA.get_cost historically assumes a singleton outer batch: after
+        # encoding it leaves goal_emb as (B, T, D), while criterion expects
+        # (B, K, T, D).  That broadcasts accidentally for B=1 and fails for
+        # batched spatial interventions.  Reproduce get_cost explicitly while
+        # restoring the missing candidate axis.  This keeps all interventions
+        # vectorized and each clip's goal matched to its own K candidates.
+        goal_emb = model.encode({"pixels": goal})["emb"]
         info = {
-            "pixels": context[:, None].expand(-1, candidates, -1, -1, -1, -1),
-            "goal": goal[:, None].expand(-1, candidates, -1, -1, -1, -1),
+            "pixels": context[:, None].expand(
+                -1, candidates, -1, -1, -1, -1
+            ),
             "action": plans,
+            "goal_emb": goal_emb[:, None].expand(
+                -1, candidates, -1, -1
+            ),
         }
-        return model.get_cost(info, plans.clone()).reshape(batch, candidates)
+        info = model.rollout(info, plans.clone())
+        return model.criterion(info).reshape(batch, candidates)
 
     checkpoint_root = Path(os.environ["STABLEWM_HOME"]) / "checkpoints"
     result: dict = {

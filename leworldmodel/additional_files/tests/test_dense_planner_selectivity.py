@@ -48,3 +48,11 @@ def test_campaign_is_matched_jepa_versus_ours():
     assert "jepa=colored_square_episode_seed0" in text
     assert "ours=interface-cycle-20261002-064431" in text
     assert "DENSE_PLANNER_SELECTIVITY_JOB" in text
+
+
+def test_planner_costs_isolate_outer_batch_from_candidate_axis():
+    text = PATH.read_text()
+    assert 'goal_emb = model.encode({"pixels": goal})["emb"]' in text
+    assert '"goal_emb": goal_emb[:, None].expand(' in text
+    assert "info = model.rollout(info, plans.clone())" in text
+    assert "return model.criterion(info).reshape(batch, candidates)" in text
