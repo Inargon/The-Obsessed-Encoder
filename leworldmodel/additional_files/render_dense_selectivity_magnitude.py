@@ -356,6 +356,114 @@ def main() -> None:
     figure.savefig(out_dir / "dense-example-paper-hybrid.png", dpi=240)
     plt.close(figure)
 
+    # Decomposed allocation view.  A compact tag can remain the brightest
+    # single cell even when most mass is distributed across non-tag cells.
+    # Show both facts explicitly instead of relying on brightness alone.
+    windows = data["protocol"]["windows"]
+    tag_cells = np.asarray(
+        [y0 < tag_size and x0 < tag_size for y0, _y1, x0, _x1 in windows],
+        dtype=bool,
+    ).reshape(int(data["protocol"]["grid_size"]), -1)
+    figure, axes = plt.subplots(2, 4, figsize=(12.8, 6.3), constrained_layout=True)
+    for row, key in enumerate(("context_cost", "goal_cost")):
+        base = bases[key]
+        height, width_pixels = base.shape[:2]
+        maps = {
+            label: np.asarray(data["runs"][label]["maps"]["mean"][key][position], dtype=float)
+            for label in labels
+        }
+        axes[row, 0].imshow(base)
+        axes[row, 0].add_patch(
+            Rectangle((0, 0), tag_size, tag_size, fill=False, edgecolor="#00C853", linewidth=2)
+        )
+        axes[row, 0].set_ylabel(
+            "Context intervention" if key == "context_cost" else "Goal intervention",
+            fontsize=11,
+            fontweight="bold",
+        )
+        if row == 0:
+            axes[row, 0].set_title("Input")
+
+        for col, label in enumerate(labels, start=1):
+            heat = maps[label]
+            allocation = heat / max(float(heat.sum()), 1e-12)
+            axis = axes[row, col]
+            axis.imshow(base)
+            axis.imshow(
+                allocation,
+                cmap="magma",
+                vmin=0.0,
+                vmax=max(float(allocation.max()), 1e-12),
+                extent=(0, width_pixels, height, 0),
+                interpolation="bilinear",
+                alpha=0.62,
+            )
+            axis.add_patch(
+                Rectangle((0, 0), tag_size, tag_size, fill=False, edgecolor="#00C853", linewidth=2)
+            )
+            tag_share = float(
+                data["runs"][label]["per_clip"]["tag_region_mass"][key][position]
+            )
+            tag_effect = absolute_tag_values(data["runs"][label], key)[position]
+            axis.text(
+                0.98,
+                0.04,
+                f"tag share={100 * tag_share:.1f}%  abs={tag_effect:.2f}",
+                transform=axis.transAxes,
+                ha="right",
+                va="bottom",
+                fontsize=8,
+                color="black",
+                bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.84, "pad": 2},
+            )
+            if row == 0:
+                axis.set_title(DISPLAY[label])
+
+        ours_heat = maps["ours"].copy()
+        ours_heat[tag_cells] = 0.0
+        residual = ours_heat / max(float(ours_heat.sum()), 1e-12)
+        axis = axes[row, 3]
+        axis.imshow(base)
+        axis.imshow(
+            residual,
+            cmap="magma",
+            vmin=0.0,
+            vmax=max(float(residual.max()), 1e-12),
+            extent=(0, width_pixels, height, 0),
+            interpolation="bilinear",
+            alpha=0.62,
+        )
+        axis.add_patch(
+            Rectangle((0, 0), tag_size, tag_size, fill=False, edgecolor="#00C853", linewidth=2)
+        )
+        ours_tag_share = float(
+            data["runs"]["ours"]["per_clip"]["tag_region_mass"][key][position]
+        )
+        axis.text(
+            0.98,
+            0.04,
+            f"non-tag share={100 * (1.0 - ours_tag_share):.1f}%",
+            transform=axis.transAxes,
+            ha="right",
+            va="bottom",
+            fontsize=8,
+            color="black",
+            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.84, "pad": 2},
+        )
+        if row == 0:
+            axis.set_title("Ours: non-tag residual")
+
+    for axis in axes.flat:
+        axis.set_xticks([])
+        axis.set_yticks([])
+    figure.suptitle(
+        "Compact tag response versus distributed non-tag sensitivity\n"
+        "heatmaps show within-panel allocation; numbers report actual shares and magnitudes",
+        fontsize=14,
+    )
+    figure.savefig(out_dir / "dense-example-paper-decomposed.png", dpi=240)
+    plt.close(figure)
+
     (out_dir / "dense-selectivity-magnitude-summary.json").write_text(
         json.dumps(summaries, indent=2, allow_nan=False) + "\n"
     )

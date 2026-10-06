@@ -33,3 +33,5 @@ def test_renderer_uses_shared_absolute_scale_and_log_magnitude():
     assert "dense-example-paper-absolute.png" in text
     assert "dense-example-paper-hybrid.png" in text
     assert "within-model normalized heat" in text
+    assert "dense-example-paper-decomposed.png" in text
+    assert 'ours_heat[tag_cells] = 0.0' in text
