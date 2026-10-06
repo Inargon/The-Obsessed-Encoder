@@ -551,6 +551,67 @@ def main() -> None:
         figure.savefig(out_dir / f"dense-example-{side}-relative-uniform.png", dpi=240)
         plt.close(figure)
 
+        # Main-paper version: the scientific comparison is JEPA versus Ours.
+        # The tag-masked residual is a derived diagnostic and belongs in the
+        # appendix, not beside the two actual model outputs in the main panel.
+        main_panels = (
+            ("JEPA", maps["jepa"], "jepa"),
+            ("Ours", maps["ours"], "ours"),
+        )
+        figure, axes = plt.subplots(2, 2, figsize=(6.6, 6.0), constrained_layout=True)
+        for col, (title, heat, label) in enumerate(main_panels):
+            axes[0, col].imshow(base)
+            axes[0, col].add_patch(
+                Rectangle((0, 0), tag_size, tag_size, fill=False,
+                          edgecolor="#00C853", linewidth=2)
+            )
+            axes[0, col].set_title(title, fontsize=13, fontweight="bold")
+
+            allocation = heat / max(float(heat.sum()), 1e-12)
+            relative = allocation * allocation.size
+            log2_relative = np.clip(
+                np.log2(np.maximum(relative, 0.25)), -2.0, 2.0
+            )
+            axes[1, col].imshow(
+                log2_relative, cmap="RdBu_r", vmin=-2.0, vmax=2.0,
+                interpolation="nearest",
+            )
+            axes[1, col].add_patch(
+                Rectangle((-0.5, -0.5), 1, 1, fill=False,
+                          edgecolor="#00C853", linewidth=2)
+            )
+            tag_share = float(
+                data["runs"][label]["per_clip"]["tag_region_mass"][key][position]
+            )
+            tag_effect = absolute_tag_values(data["runs"][label], key)[position]
+            axes[1, col].text(
+                0.5, -0.10,
+                f"tag share={100 * tag_share:.1f}%   absolute={tag_effect:.2f}",
+                transform=axes[1, col].transAxes, ha="center", va="top", fontsize=8,
+            )
+
+        axes[0, 0].set_ylabel("Matched input", fontsize=11, fontweight="bold")
+        axes[1, 0].set_ylabel("Intervention sensitivity", fontsize=11, fontweight="bold")
+        for axis in axes.flat:
+            axis.set_xticks([])
+            axis.set_yticks([])
+        colorbar = figure.colorbar(
+            ScalarMappable(norm=Normalize(vmin=-2, vmax=2), cmap="RdBu_r"),
+            ax=axes[1, :].tolist(), orientation="horizontal", fraction=0.07, pad=0.13,
+        )
+        colorbar.set_ticks([-2, -1, 0, 1, 2])
+        colorbar.set_ticklabels(["¼×", "½×", "1×", "2×", "4×"])
+        colorbar.set_label("Spatial sensitivity relative to uniform allocation")
+        figure.suptitle(
+            f"{side.capitalize()} planning-cost selectivity\n"
+            "same scene and candidates; green square marks the nuisance tag",
+            fontsize=14,
+        )
+        figure.savefig(
+            out_dir / f"dense-example-{side}-relative-uniform-main.png", dpi=240
+        )
+        plt.close(figure)
+
     (out_dir / "dense-selectivity-magnitude-summary.json").write_text(
         json.dumps(summaries, indent=2, allow_nan=False) + "\n"
     )
