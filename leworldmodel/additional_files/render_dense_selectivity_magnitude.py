@@ -464,6 +464,92 @@ def main() -> None:
     figure.savefig(out_dir / "dense-example-paper-decomposed.png", dpi=240)
     plt.close(figure)
 
+    # Enigma-style presentation: raw observation above, standalone spatial
+    # selectivity below, expressed relative to uniform allocation.  These are
+    # intervention maps, not transformer attention maps.
+    from matplotlib.cm import ScalarMappable
+    from matplotlib.colors import Normalize
+
+    for key, side in (("context_cost", "context"), ("goal_cost", "goal")):
+        base = bases[key]
+        maps = {
+            label: np.asarray(data["runs"][label]["maps"]["mean"][key][position], dtype=float)
+            for label in labels
+        }
+        ours_residual = maps["ours"].copy()
+        ours_residual[tag_cells] = 0.0
+        panels = (
+            ("JEPA", maps["jepa"], False),
+            ("Ours", maps["ours"], False),
+            ("Ours — tag masked", ours_residual, True),
+        )
+        figure, axes = plt.subplots(2, 3, figsize=(9.6, 6.2), constrained_layout=True)
+        for col, (title, heat, tag_masked) in enumerate(panels):
+            axes[0, col].imshow(base)
+            axes[0, col].add_patch(
+                Rectangle((0, 0), tag_size, tag_size, fill=False, edgecolor="#00C853", linewidth=2)
+            )
+            axes[0, col].set_title(title, fontsize=12, fontweight="bold")
+
+            allocation = heat / max(float(heat.sum()), 1e-12)
+            active_cells = allocation.size - (int(tag_cells.sum()) if tag_masked else 0)
+            relative = allocation * max(active_cells, 1)
+            log2_relative = np.log2(np.maximum(relative, 0.25))
+            log2_relative = np.clip(log2_relative, -2.0, 2.0)
+            axes[1, col].imshow(
+                log2_relative,
+                cmap="RdBu_r",
+                vmin=-2.0,
+                vmax=2.0,
+                interpolation="nearest",
+            )
+            axes[1, col].add_patch(
+                Rectangle((-0.5, -0.5), 1, 1, fill=False, edgecolor="#00C853", linewidth=2)
+            )
+            if title == "JEPA":
+                label = "jepa"
+            else:
+                label = "ours"
+            tag_share = float(
+                data["runs"][label]["per_clip"]["tag_region_mass"][key][position]
+            )
+            tag_effect = absolute_tag_values(data["runs"][label], key)[position]
+            if tag_masked:
+                note = f"tag masked; non-tag share={100 * (1 - tag_share):.1f}%"
+            else:
+                note = f"tag share={100 * tag_share:.1f}%  abs={tag_effect:.2f}"
+            axes[1, col].text(
+                0.5,
+                -0.10,
+                note,
+                transform=axes[1, col].transAxes,
+                ha="center",
+                va="top",
+                fontsize=8,
+            )
+
+        axes[0, 0].set_ylabel("Matched input", fontsize=11, fontweight="bold")
+        axes[1, 0].set_ylabel("Intervention sensitivity", fontsize=11, fontweight="bold")
+        for axis in axes.flat:
+            axis.set_xticks([])
+            axis.set_yticks([])
+        colorbar = figure.colorbar(
+            ScalarMappable(norm=Normalize(vmin=-2, vmax=2), cmap="RdBu_r"),
+            ax=axes[1, :].tolist(),
+            orientation="horizontal",
+            fraction=0.06,
+            pad=0.13,
+        )
+        colorbar.set_ticks([-2, -1, 0, 1, 2], ["¼×", "½×", "1×", "2×", "4×"])
+        colorbar.set_label("Spatial sensitivity relative to uniform allocation")
+        figure.suptitle(
+            f"{side.capitalize()} planning-cost selectivity — clip {position}\n"
+            "same scene and candidates; green square marks the nuisance tag cell",
+            fontsize=14,
+        )
+        figure.savefig(out_dir / f"dense-example-{side}-relative-uniform.png", dpi=240)
+        plt.close(figure)
+
     (out_dir / "dense-selectivity-magnitude-summary.json").write_text(
         json.dumps(summaries, indent=2, allow_nan=False) + "\n"
     )
