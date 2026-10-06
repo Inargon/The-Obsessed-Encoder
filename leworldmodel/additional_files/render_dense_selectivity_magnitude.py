@@ -540,7 +540,8 @@ def main() -> None:
             fraction=0.06,
             pad=0.13,
         )
-        colorbar.set_ticks([-2, -1, 0, 1, 2], ["¼×", "½×", "1×", "2×", "4×"])
+        colorbar.set_ticks([-2, -1, 0, 1, 2])
+        colorbar.set_ticklabels(["¼×", "½×", "1×", "2×", "4×"])
         colorbar.set_label("Spatial sensitivity relative to uniform allocation")
         figure.suptitle(
             f"{side.capitalize()} planning-cost selectivity — clip {position}\n"

@@ -37,3 +37,4 @@ def test_renderer_uses_shared_absolute_scale_and_log_magnitude():
     assert 'ours_heat[tag_cells] = 0.0' in text
     assert "dense-example-{side}-relative-uniform.png" in text
     assert "Spatial sensitivity relative to uniform allocation" in text
+    assert 'colorbar.set_ticklabels(["¼×", "½×", "1×", "2×", "4×"])' in text
