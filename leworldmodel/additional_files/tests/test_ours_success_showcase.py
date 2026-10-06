@@ -58,7 +58,7 @@ def test_red_agent_centroid_tracks_the_rendered_blob():
     assert np.isclose(y, 11.0)
 
 
-def test_tagged_showcase_adds_tag_inset():
+def test_tagged_showcase_does_not_claim_simulator_render_contains_tag():
     text = (ROOT / "compose_ours_success_showcase.py").read_text(encoding="utf-8")
-    assert "enlarges the 5×5 nuisance tag" in text
-    assert "Image.Resampling.NEAREST" in text
+    assert "panels show the simulator render" in text
+    assert "enlarges the 5×5 nuisance tag" not in text

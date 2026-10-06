@@ -113,11 +113,15 @@ def render_example(task: str, row: dict, output: Path, columns: int = 5) -> None
         fill="black",
         font=_font(25, bold=True),
     )
-    subtitle = (
-        "Successful cross-room rollout; start and goal are on opposite wall sides"
-        if task == "tworoom"
-        else "Successful rollout selected by terminal agent-to-goal alignment"
-    )
+    if task == "tworoom":
+        subtitle = "Successful cross-room rollout; start and goal are on opposite wall sides"
+    elif task == "tagged_pusht":
+        subtitle = (
+            "Successful tagged-observation rollout; panels show the simulator render "
+            "without the observation overlay"
+        )
+    else:
+        subtitle = "Successful rollout selected by terminal agent-to-goal alignment"
     draw.text(
         (20, 52),
         subtitle,
@@ -132,22 +136,9 @@ def render_example(task: str, row: dict, output: Path, columns: int = 5) -> None
     draw.text((20, header + cell // 2 - 20), "Ours", fill="#aa3377", font=_font(22, bold=True))
     draw.text((20, header + cell // 2 + 14), "SUCCESS", fill="#aa3377", font=_font(17, bold=True))
     for col, frame in enumerate(sampled):
-        if task == "tagged_pusht":
-            # The nuisance tag is only 5x5 pixels and disappears when a full
-            # rollout row is scaled for paper.  Add a labelled nearest-neighbor
-            # inset without modifying the underlying scene.
-            from PIL import Image
-
-            crop = frame.crop((0, 0, 12, 12)).resize((48, 48), Image.Resampling.NEAREST)
-            crop = ImageOps.expand(crop, border=2, fill="#00C853")
-            frame = frame.copy()
-            frame.paste(crop, (frame.width - crop.width - 5, 5))
         bordered = ImageOps.expand(frame, border=2, fill="#cccccc")
         canvas.paste(bordered, (left + col * (cell + gap), header))
     goal_x = left + columns * cell + (columns - 1) * gap + goal_gap
-    if task == "tagged_pusht":
-        draw.text((left, 61), "green inset enlarges the 5×5 nuisance tag", fill="#008A36",
-                  font=_font(14, bold=True))
     draw.text((goal_x + 8, 84), "Goal reference", fill="#d62728", font=_font(16, bold=True))
     canvas.paste(ImageOps.expand(goal, border=4, fill="#d62728"), (goal_x, header))
     canvas.save(output, optimize=True)
