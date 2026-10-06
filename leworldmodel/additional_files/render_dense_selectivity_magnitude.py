@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -47,6 +48,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--seed", type=int, default=73)
+    parser.add_argument(
+        "--example-position",
+        type=int,
+        help="clip position for the compact paper heatmap; defaults to the first selected example",
+    )
     return parser.parse_args()
 
 
@@ -167,6 +173,118 @@ def main() -> None:
     axes[1].set_title("How large is the tag effect?")
     figure.tight_layout()
     figure.savefig(out_dir / "dense-tag-sensitivity-summary.png", dpi=240)
+    plt.close(figure)
+
+    # Compact qualitative panel with one input per intervention side and a
+    # genuinely shared absolute scale across JEPA and Ours.  Alpha is also
+    # proportional to the shared magnitude, so a small response is not
+    # visually amplified merely because it is the maximum for that model.
+    position = args.example_position
+    if position is None:
+        position = int(data["protocol"]["selected_example_positions"][0])
+    if not 0 <= position < len(data["protocol"]["indices"]):
+        raise ValueError(f"example position {position} is outside the sampled clips")
+
+    import torch
+    import stable_worldmodel as swm
+
+    from additional_files.pixel_tag import PixelTag
+
+    dataset = swm.data.load_dataset(
+        data["protocol"]["dataset"],
+        cache_dir=os.environ["LOCAL_DATASET_DIR"],
+        num_steps=int(data["protocol"]["history"]) + int(data["protocol"]["horizon"]),
+        frameskip=int(data["protocol"]["frameskip"]),
+        keys_to_cache=["action"],
+    )
+    dataset.transform = None
+    raw = torch.as_tensor(dataset[int(data["protocol"]["indices"][position])]["pixels"]).clone()
+    PixelTag(
+        mode="video", size=int(data["protocol"]["tag_size"]), seed=0
+    ).stamp(
+        raw,
+        ep_idx=position,
+        start=0,
+        frameskip=int(data["protocol"]["frameskip"]),
+    )
+    history = int(data["protocol"]["history"])
+    bases = {
+        "context_cost": raw[history - 1].permute(1, 2, 0).numpy(),
+        "goal_cost": raw[-1].permute(1, 2, 0).numpy(),
+    }
+    tag_size = int(data["protocol"]["tag_size"])
+    figure, axes = plt.subplots(2, 3, figsize=(9.8, 6.4), constrained_layout=True)
+    for row, key in enumerate(("context_cost", "goal_cost")):
+        base = bases[key]
+        height, width_pixels = base.shape[:2]
+        maps = {
+            label: np.asarray(data["runs"][label]["maps"]["mean"][key][position], dtype=float)
+            for label in labels
+        }
+        vmax = max(float(item.max()) for item in maps.values())
+        axes[row, 0].imshow(base)
+        axes[row, 0].add_patch(
+            Rectangle((0, 0), tag_size, tag_size, fill=False, edgecolor="#00C853", linewidth=2)
+        )
+        axes[row, 0].set_ylabel(
+            "Context intervention" if key == "context_cost" else "Goal intervention",
+            fontsize=11,
+            fontweight="bold",
+        )
+        if row == 0:
+            axes[row, 0].set_title("Input")
+
+        for col, label in enumerate(labels, start=1):
+            heat = maps[label]
+            scaled_alpha = np.clip(heat / max(vmax, 1e-12), 0.0, 1.0) * 0.88
+            axis = axes[row, col]
+            axis.imshow(base)
+            image = axis.imshow(
+                heat,
+                cmap="magma",
+                vmin=0.0,
+                vmax=max(vmax, 1e-12),
+                extent=(0, width_pixels, height, 0),
+                interpolation="bilinear",
+                alpha=scaled_alpha,
+            )
+            axis.add_patch(
+                Rectangle((0, 0), tag_size, tag_size, fill=False, edgecolor="#00C853", linewidth=2)
+            )
+            tag_effect = absolute_tag_values(data["runs"][label], key)[position]
+            total_effect = float(heat.sum())
+            axis.text(
+                0.98,
+                0.04,
+                f"tag={tag_effect:.2f}  total={total_effect:.2f}",
+                transform=axis.transAxes,
+                ha="right",
+                va="bottom",
+                fontsize=8,
+                color="black",
+                bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.82, "pad": 2},
+            )
+            if row == 0:
+                axis.set_title(DISPLAY[label])
+        figure.colorbar(image, ax=axes[row, 1:].tolist(), fraction=0.035, pad=0.02)
+
+    for axis in axes.flat:
+        axis.set_xticks([])
+        axis.set_yticks([])
+    context_ratio = (
+        absolute_tag_values(data["runs"]["jepa"], "context_cost")[position]
+        / max(absolute_tag_values(data["runs"]["ours"], "context_cost")[position], 1e-12)
+    )
+    goal_ratio = (
+        absolute_tag_values(data["runs"]["jepa"], "goal_cost")[position]
+        / max(absolute_tag_values(data["runs"]["ours"], "goal_cost")[position], 1e-12)
+    )
+    figure.suptitle(
+        "Absolute planning sensitivity with shared scales\n"
+        f"clip {position}: tag effect is {context_ratio:.1f}× / {goal_ratio:.1f}× lower for Ours",
+        fontsize=14,
+    )
+    figure.savefig(out_dir / "dense-example-paper-absolute.png", dpi=240)
     plt.close(figure)
 
     (out_dir / "dense-selectivity-magnitude-summary.json").write_text(

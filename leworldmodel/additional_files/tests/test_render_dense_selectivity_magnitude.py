@@ -29,3 +29,5 @@ def test_renderer_uses_shared_absolute_scale_and_log_magnitude():
     assert "vmin=0.0, vmax=max(vmax, 1e-12)" in text
     assert 'axes[1].set_yscale("log")' in text
     assert "dense-tag-sensitivity-summary.png" in text
+    assert "scaled_alpha = np.clip(heat / max(vmax, 1e-12)" in text
+    assert "dense-example-paper-absolute.png" in text
