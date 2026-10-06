@@ -287,6 +287,75 @@ def main() -> None:
     figure.savefig(out_dir / "dense-example-paper-absolute.png", dpi=240)
     plt.close(figure)
 
+    # Hybrid companion: retain a readable within-model allocation map on the
+    # dimmed input while reporting absolute magnitude in every panel.  This
+    # answers where the remaining response lies without pretending that the
+    # JEPA and Ours responses have equal size.
+    figure, axes = plt.subplots(2, 3, figsize=(9.8, 6.4), constrained_layout=True)
+    for row, key in enumerate(("context_cost", "goal_cost")):
+        base = bases[key]
+        height, width_pixels = base.shape[:2]
+        maps = {
+            label: np.asarray(data["runs"][label]["maps"]["mean"][key][position], dtype=float)
+            for label in labels
+        }
+        axes[row, 0].imshow(base)
+        axes[row, 0].add_patch(
+            Rectangle((0, 0), tag_size, tag_size, fill=False, edgecolor="#00C853", linewidth=2)
+        )
+        axes[row, 0].set_ylabel(
+            "Context intervention" if key == "context_cost" else "Goal intervention",
+            fontsize=11,
+            fontweight="bold",
+        )
+        if row == 0:
+            axes[row, 0].set_title("Input")
+
+        for col, label in enumerate(labels, start=1):
+            heat = maps[label]
+            allocation = heat / max(float(heat.sum()), 1e-12)
+            axis = axes[row, col]
+            axis.imshow(base)
+            axis.imshow(
+                allocation,
+                cmap="magma",
+                vmin=0.0,
+                vmax=max(float(allocation.max()), 1e-12),
+                extent=(0, width_pixels, height, 0),
+                interpolation="bilinear",
+                alpha=0.62,
+            )
+            axis.add_patch(
+                Rectangle((0, 0), tag_size, tag_size, fill=False, edgecolor="#00C853", linewidth=2)
+            )
+            tag_effect = absolute_tag_values(data["runs"][label], key)[position]
+            total_effect = float(heat.sum())
+            axis.text(
+                0.98,
+                0.04,
+                f"absolute: tag={tag_effect:.2f}  total={total_effect:.2f}",
+                transform=axis.transAxes,
+                ha="right",
+                va="bottom",
+                fontsize=8,
+                color="black",
+                bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.84, "pad": 2},
+            )
+            if row == 0:
+                axis.set_title(DISPLAY[label])
+
+    for axis in axes.flat:
+        axis.set_xticks([])
+        axis.set_yticks([])
+    figure.suptitle(
+        "Where the remaining planning sensitivity is allocated\n"
+        f"within-model normalized heat; absolute tag effect is "
+        f"{context_ratio:.1f}× / {goal_ratio:.1f}× lower for Ours",
+        fontsize=14,
+    )
+    figure.savefig(out_dir / "dense-example-paper-hybrid.png", dpi=240)
+    plt.close(figure)
+
     (out_dir / "dense-selectivity-magnitude-summary.json").write_text(
         json.dumps(summaries, indent=2, allow_nan=False) + "\n"
     )
