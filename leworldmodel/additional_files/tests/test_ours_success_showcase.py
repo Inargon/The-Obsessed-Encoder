@@ -56,3 +56,9 @@ def test_red_agent_centroid_tracks_the_rendered_blob():
     x, y = module.red_agent_centroid(frame)
     assert np.isclose(x, 22.0)
     assert np.isclose(y, 11.0)
+
+
+def test_tagged_showcase_adds_tag_inset():
+    text = (ROOT / "compose_ours_success_showcase.py").read_text(encoding="utf-8")
+    assert "enlarges the 5×5 nuisance tag" in text
+    assert "Image.Resampling.NEAREST" in text

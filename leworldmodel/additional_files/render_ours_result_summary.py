@@ -43,7 +43,7 @@ def main() -> None:
     errors = np.vstack((rates - intervals[:, 0], intervals[:, 1] - rates))
     colors = ["#6F4E7C", "#B23A76", "#3B75AF", "#3E9C76", "#D18732"]
 
-    fig, ax = plt.subplots(figsize=(8.2, 4.7), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(8.2, 4.7))
     x = np.arange(len(labels))
     bars = ax.bar(x, 100 * rates, color=colors, width=0.68, zorder=2)
     ax.errorbar(
@@ -60,13 +60,14 @@ def main() -> None:
     ax.set_ylim(0, 112)
     ax.set_ylabel("Planning success rate (%)")
     ax.set_title("Ours with online CEM planning", fontweight="bold")
-    ax.text(
-        0.99, 0.02,
+    fig.text(
+        0.99, 0.015,
         "One fixed evaluation group, seed 42; bars show Wilson 95% intervals",
-        transform=ax.transAxes, ha="right", va="bottom", fontsize=8.5, color="#555555",
+        ha="right", va="bottom", fontsize=8.5, color="#555555",
     )
     ax.grid(axis="y", alpha=0.20, zorder=0)
     ax.spines[["top", "right"]].set_visible(False)
+    fig.subplots_adjust(left=0.10, right=0.985, top=0.89, bottom=0.18)
     fig.savefig(args.out_dir / "ours-five-task-cem-summary.png", dpi=240)
     plt.close(fig)
 

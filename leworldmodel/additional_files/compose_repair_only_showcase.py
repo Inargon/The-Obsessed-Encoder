@@ -210,7 +210,7 @@ def main() -> None:
             "artifact_scope": "qualitative showcase; full-group success rates remain the quantitative result",
             "output": "PNG only; no GIF",
         },
-        "success_rate": {"jepa": jepa["success_rate"], "repair": repair["success_rate"]},
+        "success_rate": {"jepa": jepa["success_rate"], "ours": repair["success_rate"]},
         "eligible_count": len(ranked),
         "selected": selected,
         "all_ranked": ranked,

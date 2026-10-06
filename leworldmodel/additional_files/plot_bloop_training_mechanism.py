@@ -98,7 +98,7 @@ def render(runs: dict[str, list[dict]], out: Path) -> None:
     import matplotlib.pyplot as plt
 
     colors = plt.get_cmap("tab10")
-    fig, axes = plt.subplots(2, 2, figsize=(11.5, 7.5), constrained_layout=True)
+    fig, axes = plt.subplots(2, 2, figsize=(11.5, 7.5))
     panels = (
         ("projection", "EMA-conflicting auxiliary updates", "%", True),
         ("retained", "Auxiliary gradient norm retained", "fraction", False),
@@ -126,12 +126,46 @@ def render(runs: dict[str, list[dict]], out: Path) -> None:
         handles,
         labels,
         loc="upper center",
-        bbox_to_anchor=(0.5, 1.02),
+        bbox_to_anchor=(0.5, 0.945),
         ncol=min(5, len(labels)),
         frameon=False,
     )
-    fig.suptitle("EMA-guided gradient geometry throughout training")
-    fig.savefig(out, dpi=220)
+    fig.suptitle("EMA-guided gradient geometry throughout training", y=0.995)
+    fig.subplots_adjust(left=0.07, right=0.985, bottom=0.08, top=0.84,
+                        wspace=0.24, hspace=0.34)
+    appendix = out.with_name(out.stem + "-appendix" + out.suffix)
+    fig.savefig(appendix, dpi=220)
+    plt.close(fig)
+
+    # Main-paper figure: retain only the two quantities needed to explain the
+    # routing mechanism.  Cosine diagnostics remain available in the appendix.
+    fig, axes = plt.subplots(1, 2, figsize=(11.2, 4.25))
+    main_panels = (
+        ("projection", "EMA-conflicting auxiliary updates", "%", True),
+        ("retained", "Auxiliary gradient norm retained", "fraction", False),
+    )
+    for run_index, (label, records) in enumerate(runs.items()):
+        color = colors(run_index)
+        for axis, (name, title, ylabel, is_conflict) in zip(axes, main_panels):
+            steps, values = extract(records, METRICS[name])
+            if is_conflict:
+                values = (values < 0).astype(float) * 100.0
+            x, y = bin_series(steps, values, bins=100)
+            axis.plot(x, y, color=color, lw=1.8, label=label)
+            axis.set_title(title)
+            axis.set_ylabel(ylabel)
+            axis.set_xlabel("training step")
+            axis.grid(alpha=0.2)
+            axis.spines[["top", "right"]].set_visible(False)
+    axes[0].set_ylim(-2, 102)
+    axes[1].set_ylim(0.58, 1.01)
+    axes[1].axhline(1.0, color="0.35", ls="--", lw=1)
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.92),
+               ncol=min(5, len(labels)), frameon=False)
+    fig.suptitle("EMA-guided auxiliary-gradient routing", y=0.995, fontsize=15)
+    fig.subplots_adjust(left=0.075, right=0.985, bottom=0.15, top=0.74, wspace=0.22)
+    fig.savefig(out, dpi=240)
     plt.close(fig)
 
 
