@@ -32,11 +32,11 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.patches import ConnectionPatch
 
-# animation pacing: every ANIM_STRIDE-th step at ANIM_FPS; panels whose
-# episodes end early hold their last frame, then everything holds ANIM_HOLD_S
-# before the loop
-ANIM_STRIDE = 3
-ANIM_FPS = 12
+# Animation pacing is intentionally compact: each episode contributes a fixed
+# number of evenly spaced frames.  This preserves all three episode cuts while
+# keeping the paper/web GIF small enough to share over a slow connection.
+ANIM_FRAMES_PER_EPISODE = 12
+ANIM_FPS = 6
 ANIM_HOLD_S = 1.0
 ANIM_DPI = 100
 # side of the top-left corner region the square panels magnify in their inset
@@ -54,10 +54,16 @@ def _frames(dataset_name: str, ep: int, steps: list[int]) -> list[np.ndarray]:
     return [clip[s].permute(1, 2, 0).numpy() for s in steps]
 
 
-def _episode_steps(dataset_name: str, ep: int, stride: int = ANIM_STRIDE) -> list[int]:
+def _episode_steps(
+    dataset_name: str,
+    ep: int,
+    frames: int = ANIM_FRAMES_PER_EPISODE,
+) -> list[int]:
     cache_dir = os.environ.get("LOCAL_DATASET_DIR", None)
     ds = swm.data.load_dataset(dataset_name, cache_dir=cache_dir, keys_to_load=["pixels"])
-    return list(range(0, int(ds.lengths[ep]), stride))
+    length = int(ds.lengths[ep])
+    count = min(max(int(frames), 2), length)
+    return np.linspace(0, length - 1, count, dtype=int).tolist()
 
 
 def fig_dataset_animation(
@@ -225,11 +231,15 @@ def main() -> None:
     # tag a whole subsampled episode; frameskip=stride keeps each frame's
     # episode-local step, so frame-mode colours match what training would stamp
     def tagged_episode(mode: str, ep: int) -> list[np.ndarray]:
-        frames = episode(args.baseline_dataset, ep)
+        steps = _episode_steps(args.baseline_dataset, ep)
+        frames = _frames(args.baseline_dataset, ep, steps)
         clip = torch.from_numpy(np.stack(frames)).permute(0, 3, 1, 2).contiguous()
-        PixelTag(mode=mode, size=args.tag_size, seed=args.tag_seed).stamp(
-            clip, ep, 0, ANIM_STRIDE
-        )
+        tag = PixelTag(mode=mode, size=args.tag_size, seed=args.tag_seed)
+        if mode == "video":
+            tag.stamp(clip, ep, 0, 1)
+        else:
+            for frame, step in zip(clip, steps):
+                tag.stamp(frame.unsqueeze(0), ep, int(step), 1)
         return [clip[t].permute(1, 2, 0).numpy() for t in range(clip.shape[0])]
 
     # left couple: three episodes per arm so the goal contrast plays out at the
