@@ -131,25 +131,25 @@ def render_modern_pair(task: str, rows: list[dict], output: Path, *, frames: int
     save_gif(output_frames, output, fps)
 
 
-def render_tagged_four(rows: list[dict], output: Path, *, frames: int, fps: int) -> None:
+def render_tagged_pair(rows: list[dict], output: Path, *, frames: int, fps: int) -> None:
     from PIL import Image, ImageDraw, ImageOps
     from additional_files.pixel_tag import PixelTag
 
-    if len(rows) != 4:
-        raise ValueError("tagged renderer expects four episodes")
+    if len(rows) != 2:
+        raise ValueError("tagged renderer expects two episodes")
     streams = [read_video(Path(row["video"])) for row in rows]
     indices = [synchronized_indices(len(stream), frames) for stream in streams]
     # The fixed-group evaluator uses EvalTagStamp._VIDEO_KEY == 0 with seed 42.
     tag_color = PixelTag(mode="video", size=5, seed=42).color_for(0)
-    cell, gap, margin, header, footer = 220, 12, 16, 122, 38
-    width = margin * 2 + 4 * cell + 3 * gap
+    cell, gap, margin, header, footer = 300, 22, 18, 132, 42
+    width = margin * 2 + 2 * cell + gap
     height = header + cell + footer
     output_frames = []
     for step in range(frames):
         canvas = Image.new("RGB", (width, height), "white")
         draw = ImageDraw.Draw(canvas)
-        draw.text((margin, 7), "Tagged PushT — four successful Ours rollouts",
-                  fill="black", font=_font(23, bold=True))
+        draw.text((margin, 7), "Tagged PushT — successful Ours rollouts",
+                  fill="black", font=_font(24, bold=True))
         draw.text(
             (margin, 38),
             "Exact episode-constant 5×5 evaluation tag reconstructed; red inset magnifies the observation corner",
@@ -163,14 +163,14 @@ def render_tagged_four(rows: list[dict], output: Path, *, frames: int, fps: int)
             panel = fit_square(tagged, cell)
             border = SUCCESS_GREEN if step == frames - 1 else "#cccccc"
             canvas.paste(ImageOps.expand(panel, border=3, fill=border), (x - 3, header - 3))
-            crop = Image.fromarray(tagged[:14, :14]).resize((58, 58), Image.Resampling.NEAREST)
+            crop = Image.fromarray(tagged[:14, :14]).resize((66, 66), Image.Resampling.NEAREST)
             crop = ImageOps.expand(crop, border=2, fill=TAG_RED)
             canvas.paste(crop, (x + 4, 56))
-            draw.line((x + 33, 116, x + 2, header + 2), fill=TAG_RED, width=2)
-            draw.text((x + 72, 67), f"episode {row['episode']}", fill=OURS,
-                      font=_font(15, bold=True))
-            draw.text((x + 72, 91), "tag ×12", fill=TAG_RED,
-                      font=_font(13, bold=True))
+            draw.line((x + 37, 126, x + 2, header + 2), fill=TAG_RED, width=2)
+            draw.text((x + 82, 69), f"episode {row['episode']}", fill=OURS,
+                      font=_font(17, bold=True))
+            draw.text((x + 82, 96), "tag ×12", fill=TAG_RED,
+                      font=_font(14, bold=True))
             status = "SUCCESS" if step == frames - 1 else f"{progress}%"
             draw.text((x + 5, header + cell + 9), status,
                       fill=SUCCESS_GREEN if step == frames - 1 else "#555555",
@@ -251,13 +251,13 @@ def main() -> None:
     for task in MODERN_TASKS:
         summary = json.loads((args.modern_source / task / "summary.json").read_text())
         ranked = rank_successes(summary, task)
-        count = 4 if task == "tagged_pusht" else 2
+        count = 2
         if len(ranked) < count:
             raise ValueError(f"{task}: only {len(ranked)} eligible successful episodes")
         selected = ranked[:count]
         if task == "tagged_pusht":
-            output = args.out_dir / "tagged-pusht-success-four.gif"
-            render_tagged_four(selected, output, frames=args.frames, fps=args.fps)
+            output = args.out_dir / "tagged-pusht-success.gif"
+            render_tagged_pair(selected, output, frames=args.frames, fps=args.fps)
         else:
             output = args.out_dir / f"{task.replace('_', '-')}-success.gif"
             render_modern_pair(task, selected, output, frames=args.frames, fps=args.fps)

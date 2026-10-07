@@ -41,13 +41,13 @@ def main() -> None:
         "artifact": "five successful Ours rollout GIFs",
         "reruns_models_or_evaluation": False,
         "outputs": [
-            "tagged-pusht-success-four.gif",
+            "tagged-pusht-success.gif",
             "clean-pusht-success.gif",
             "tworoom-success.gif",
             "cube-success.gif",
             "reacher-success.gif",
         ],
-        "tagged_pusht": "four successful episodes with exact tag reconstruction and zoom",
+        "tagged_pusht": "two successful episodes with exact tag reconstruction and zoom",
         "other_tasks": "two selected simulator-labelled successes per GIF",
         "missing": missing,
     }
