@@ -83,8 +83,6 @@ def main() -> None:
             "--randgoal-dataset", "pusht_scripted_goal_train.lance",
             "--out", protocol_png,
         ]),
-        f"mv {shlex.quote(str(protocol_png.with_suffix('.gif')))} "
-        f"{shlex.quote(str(artifacts / 'pusht-protocol.gif'))}",
         quote([
             args.python,
             REPO / "leworldmodel/additional_files/render_dense_selectivity_gif.py",
