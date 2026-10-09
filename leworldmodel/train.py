@@ -278,6 +278,8 @@ def lejepa_forward(self, batch, stage, cfg):
             "bloop_main_ema_cosine",
             "bloop_projected_ema_cosine",
             "bloop_control_ema_norm_ratio",
+            "bloop_rank",
+            "bloop_prediction_subspace_fraction",
             "decision_subspace_rank",
             "decision_subspace_prediction_coverage",
             "decision_subspace_control_coverage",

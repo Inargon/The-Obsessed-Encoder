@@ -27,6 +27,7 @@ class ParameterSpaceBloop(nn.Module):
         *,
         decay: float = 0.9,
         auxiliary_weight: float = 1.0,
+        rank: int = 1,
         eps: float = 1e-12,
     ) -> None:
         super().__init__()
@@ -37,6 +38,8 @@ class ParameterSpaceBloop(nn.Module):
                 "auxiliary_weight must be non-negative, "
                 f"got {auxiliary_weight}"
             )
+        if rank < 1:
+            raise ValueError(f"rank must be positive, got {rank}")
         if eps <= 0.0:
             raise ValueError(f"eps must be positive, got {eps}")
 
@@ -50,6 +53,7 @@ class ParameterSpaceBloop(nn.Module):
         self.parameter_names = tuple(names)
         self.decay = float(decay)
         self.auxiliary_weight = float(auxiliary_weight)
+        self.rank = int(rank)
         self.eps = float(eps)
         self.register_buffer("initialized", torch.tensor(False), persistent=True)
         for index, (_, parameter) in enumerate(entries):
@@ -58,13 +62,107 @@ class ParameterSpaceBloop(nn.Module):
                 torch.zeros_like(parameter, memory_format=torch.preserve_format),
                 persistent=True,
             )
+        if self.rank > 1:
+            self.register_buffer(
+                "extra_initialized",
+                torch.zeros(self.rank - 1, dtype=torch.bool),
+                persistent=True,
+            )
+            for slot in range(1, self.rank):
+                for index, (_, parameter) in enumerate(entries):
+                    self.register_buffer(
+                        f"control_ema_rank_{slot}_{index}",
+                        torch.zeros_like(
+                            parameter, memory_format=torch.preserve_format
+                        ),
+                        persistent=True,
+                    )
         self._pending: list[tuple[nn.Parameter, torch.Tensor]] | None = None
 
-    def _ema_buffers(self) -> list[torch.Tensor]:
+    def _ema_buffers(self, slot: int = 0) -> list[torch.Tensor]:
+        if slot < 0 or slot >= self.rank:
+            raise IndexError(f"Bloop basis slot out of range: {slot}")
+        if slot:
+            return [
+                getattr(self, f"control_ema_rank_{slot}_{index}")
+                for index in range(len(self.parameter_names))
+            ]
         return [
             getattr(self, f"control_ema_{index}")
             for index in range(len(self.parameter_names))
         ]
+
+    def _basis_initialized(self, slot: int) -> bool:
+        if slot == 0:
+            return bool(self.initialized.item())
+        return bool(self.extra_initialized[slot - 1].item())
+
+    def _set_basis_initialized(self, slot: int) -> None:
+        if slot == 0:
+            self.initialized.fill_(True)
+        else:
+            self.extra_initialized[slot - 1] = True
+
+    def _orthonormal_basis(
+        self, max_slots: int | None = None
+    ) -> list[list[torch.Tensor]]:
+        """Return an orthonormal view of the initialized EMA residual bank."""
+        basis: list[list[torch.Tensor]] = []
+        stop = self.rank if max_slots is None else min(max_slots, self.rank)
+        for slot in range(stop):
+            if not self._basis_initialized(slot):
+                continue
+            candidate = [value.float().clone() for value in self._ema_buffers(slot)]
+            for direction in basis:
+                coefficient = sum(
+                    (value * axis).sum()
+                    for value, axis in zip(candidate, direction, strict=True)
+                )
+                for value, axis in zip(candidate, direction, strict=True):
+                    value.sub_(coefficient * axis)
+            norm_sq = sum(value.square().sum() for value in candidate)
+            if float(norm_sq.item()) <= self.eps:
+                continue
+            inverse_norm = norm_sq.rsqrt()
+            basis.append([value * inverse_norm for value in candidate])
+        return basis
+
+    def _update_control_bank(self, main: list[torch.Tensor]) -> None:
+        """Update the primary EMA and optional EMAs of unexplained residuals.
+
+        Slot zero is exactly the original rank-one Bloop memory.  Each later
+        slot tracks the part of the current control gradient not represented
+        by earlier slots.  Consequently ``rank=1`` is numerically identical to
+        the published method while larger ranks protect additional historical
+        control directions without changing the control objective.
+        """
+        residual = [gradient.float().clone() for gradient in main]
+        for slot in range(self.rank):
+            estimates = self._ema_buffers(slot)
+            residual_sq = sum(value.square().sum() for value in residual)
+            if float(residual_sq.item()) <= self.eps:
+                break
+            if not self._basis_initialized(slot):
+                for estimate, gradient in zip(estimates, residual, strict=True):
+                    estimate.copy_(gradient.to(estimate.dtype))
+                self._set_basis_initialized(slot)
+            else:
+                for estimate, gradient in zip(estimates, residual, strict=True):
+                    estimate.mul_(self.decay).add_(
+                        gradient.to(estimate.dtype), alpha=1.0 - self.decay
+                    )
+
+            # Pass only the current-gradient residual to the next EMA slot.
+            current_basis = self._orthonormal_basis(max_slots=slot + 1)
+            if not current_basis:
+                break
+            direction = current_basis[-1]
+            coefficient = sum(
+                (value * axis).sum()
+                for value, axis in zip(residual, direction, strict=True)
+            )
+            for value, axis in zip(residual, direction, strict=True):
+                value.sub_(coefficient * axis)
 
     def _validate_parameters(
         self, named_parameters: NamedParameters
@@ -129,17 +227,10 @@ class ParameterSpaceBloop(nn.Module):
             parameters,
         )
 
-        ema = self._ema_buffers()
         with torch.no_grad():
-            if not bool(self.initialized.item()):
-                for estimate, gradient in zip(ema, main, strict=True):
-                    estimate.copy_(gradient)
-                self.initialized.fill_(True)
-            else:
-                for estimate, gradient in zip(ema, main, strict=True):
-                    estimate.mul_(self.decay).add_(
-                        gradient, alpha=1.0 - self.decay
-                    )
+            self._update_control_bank(main)
+            ema = self._ema_buffers()
+            basis = self._orthonormal_basis()
 
             dot = sum(
                 (gradient.float() * estimate.float()).sum()
@@ -154,9 +245,19 @@ class ParameterSpaceBloop(nn.Module):
             )
             ratio = dot / ema_sq.clamp_min(self.eps)
 
+            projected = [gradient.float().clone() for gradient in auxiliary]
+            projection_sq = torch.zeros_like(aux_sq)
+            for direction in basis:
+                coefficient = sum(
+                    (value * axis).sum()
+                    for value, axis in zip(projected, direction, strict=True)
+                )
+                projection_sq = projection_sq + coefficient.square()
+                for value, axis in zip(projected, direction, strict=True):
+                    value.sub_(coefficient * axis)
             projected = [
-                gradient - ratio.to(gradient.dtype) * estimate
-                for gradient, estimate in zip(auxiliary, ema, strict=True)
+                value.to(gradient.dtype)
+                for value, gradient in zip(projected, auxiliary, strict=True)
             ]
             corrections = [
                 self.auxiliary_weight * candidate - gradient
@@ -184,6 +285,12 @@ class ParameterSpaceBloop(nn.Module):
                 ).detach(),
                 "bloop_control_ema_norm_ratio": (
                     ema_sq.sqrt() / main_sq.sqrt().clamp_min(self.eps)
+                ).detach(),
+                "bloop_rank": torch.tensor(
+                    float(len(basis)), device=main_loss.device
+                ),
+                "bloop_prediction_subspace_fraction": (
+                    projection_sq.sqrt() / aux_sq.sqrt().clamp_min(self.eps)
                 ).detach(),
             }
         return metrics

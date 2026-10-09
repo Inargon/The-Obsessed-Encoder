@@ -72,6 +72,43 @@ def test_bloop_ema_tracks_control_history() -> None:
     )
 
 
+def test_rank_two_protects_two_historical_control_directions() -> None:
+    parameter = nn.Parameter(torch.tensor([1.0, 1.0]))
+    named = [("encoder.weight", parameter)]
+    router = ParameterSpaceBloop(named, decay=0.5, rank=2)
+
+    router.prepare(
+        main_loss=parameter[0],
+        auxiliary_loss=parameter.sum(),
+        named_parameters=named,
+    )
+    (parameter[0] + parameter.sum()).backward()
+    router.apply()
+    parameter.grad = None
+
+    metrics = router.prepare(
+        main_loss=parameter[1],
+        auxiliary_loss=parameter.sum(),
+        named_parameters=named,
+    )
+    (parameter[1] + parameter.sum()).backward()
+    router.apply()
+
+    # The EMA bank spans x and y, so the auxiliary gradient is fully removed.
+    torch.testing.assert_close(parameter.grad, torch.tensor([0.0, 1.0]))
+    torch.testing.assert_close(metrics["bloop_rank"], torch.tensor(2.0))
+    torch.testing.assert_close(
+        metrics["bloop_auxiliary_retained_fraction"], torch.tensor(0.0)
+    )
+
+
+def test_rank_one_state_dict_remains_backward_compatible() -> None:
+    parameter = nn.Parameter(torch.tensor([1.0, 1.0]))
+    router = ParameterSpaceBloop([("encoder.weight", parameter)], rank=1)
+
+    assert set(router.state_dict()) == {"initialized", "control_ema_0"}
+
+
 def test_representation_parameters_exclude_predictor() -> None:
     class TinyWorldModel(nn.Module):
         def __init__(self) -> None:
