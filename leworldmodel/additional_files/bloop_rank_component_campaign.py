@@ -174,7 +174,9 @@ def main() -> None:
     parser.add_argument("--max-concurrent", type=int, default=2)
     parser.add_argument("--defer-eval", action="store_true")
     parser.add_argument("--arms", default=",".join(ARMS))
-    parser.add_argument("--worker", choices=("smoke", "train", "eval"))
+    parser.add_argument(
+        "--worker", choices=("smoke", "train", "smoke_train", "eval")
+    )
     parser.add_argument("--campaign", type=Path)
     parser.add_argument("--arm", choices=ARMS)
     args = parser.parse_args()
@@ -188,6 +190,10 @@ def main() -> None:
             raise RuntimeError("Source/config changed since submission; submit fresh")
         if args.worker == "eval":
             evaluate(args.campaign, args.arm, args.seed)
+        elif args.worker == "smoke_train":
+            train(args.campaign, args.arm, args.seed, smoke=True)
+            print(f"BLOOP_ABLATION_SMOKE_COMPLETE arm={args.arm}")
+            train(args.campaign, args.arm, args.seed, smoke=False)
         else:
             train(args.campaign, args.arm, args.seed, args.worker == "smoke")
         print(f"BLOOP_ABLATION_{args.worker.upper()}_COMPLETE arm={args.arm}")
@@ -284,7 +290,11 @@ def main() -> None:
             "--mem=64G" if worker != "eval" else "--mem=48G",
             "--time=00:30:00"
             if worker == "smoke"
-            else ("--time=36:00:00" if worker == "train" else "--time=01:00:00"),
+            else (
+                "--time=36:00:00"
+                if worker in {"train", "smoke_train"}
+                else "--time=01:00:00"
+            ),
             f"--job-name=oe-bloop-ab-{worker}",
             "--chdir",
             str(REPO),
@@ -308,14 +318,14 @@ def main() -> None:
         return job
 
     save()
-    smoke = submit_array("smoke", args.partition)
-    training = submit_array("train", args.partition, smoke)
+    # One array slot performs its own two-step smoke gate before the full run.
+    # This halves the number of submitted array tasks under strict QOS limits.
+    training = submit_array("smoke_train", args.partition)
     evaluation = None
     if not args.defer_eval:
         evaluation = submit_array(
             "eval", args.eval_partition, training, args.eval_nodelist
         )
-    print(f"BLOOP_ABLATION_SMOKE_JOB={smoke}")
     print(f"BLOOP_ABLATION_TRAIN_JOB={training}")
     print(f"BLOOP_ABLATION_EVAL_JOB={evaluation or 'DEFERRED'}")
     print(f"CAMPAIGN={root}")
