@@ -1,6 +1,6 @@
-# Who Shapes the Encoder?
+# Control-Supported Representation Learning for Visual World Models
 
-### Control-protected predictive learning for latent world models
+### Redirecting an obsessed encoder with action-derived control evidence
 
 > **Predict what is predictable. Preserve what matters for control.**
 
