@@ -1,173 +1,242 @@
-# The Obsessed Encoder — reproductions
+# Who Shapes the Encoder?
 
-Companion code for the blog post
-[**"The Obsessed Encoder"**](https://www.enigma.inc/posts/obsessed-encoder).
-Each directory reproduces one of the post's cases end to end:
-plant a faint, predictable feature in the training images of a published
-self-supervised recipe, and watch the objective improve while the
-representation empties out.
+### Control-protected predictive learning for latent world models
 
-**Their code, our pixels.**  Each example's training code is the published
-upstream, modified only inside marked, default-inert blocks:
+> **Predict what is predictable. Preserve what matters for control.**
 
+> **Status:** research preview. The implementation and registered diagnostics
+> are available; the reported control results currently use one training seed.
+
+Joint-embedding predictive world models can learn accurate latent predictions
+while organizing their representation around a persistent but
+decision-irrelevant visual feature. This repository studies that failure in
+end-to-end visual world models and introduces a control-protected optimization
+interface for the shared encoder.
+
+Our central example is **Tagged PushT**: a `5 x 5` RGB square is added to the
+upper-left corner of every observation. Its color is fixed within each episode,
+so it is exceptionally easy to predict, but it changes neither the physical
+dynamics nor the expert action. Prediction-only JEPA assigns this tag far more
+latent distance than matched physical motion and consequently makes planning
+sensitive to tag identity.
+
+We use action-derived control evidence to constrain how prediction may update
+the shared representation. The predictor still receives its full learning
+signal; only the prediction gradient entering the encoder is routed.
+
+## Method at a glance
+
+Let `L_control` combine inverse-action and reachability supervision, and let
+`L_pred` be the action-conditioned latent prediction loss. For the shared
+encoder parameters, we maintain an exponential moving average of the control
+gradient:
+
+```text
+g_c       = grad_theta L_control
+m_t       = beta * m_(t-1) + (1 - beta) * g_c
+g_pred^⊥  = g_pred - <g_pred, m_t> / (||m_t||² + eps) * m_t
+
+g_shared  = g_c + lambda_pred * g_pred^⊥ + g_reg
 ```
+
+The control gradient is never projected. Prediction retains the complementary
+high-dimensional parameter subspace, and predictor-private parameters receive
+the original, unmodified prediction gradient.
+
+This is a **local optimization safeguard**, not a claim that one control
+gradient identifies every task-relevant semantic direction. The construction
+reduces direct first-order interference with the EMA control reference while
+leaving higher-order, stochastic, and long-horizon effects possible.
+
+Key implementation:
+
+- [`bloop_gradient_routing.py`](leworldmodel/additional_files/bloop_gradient_routing.py) — parameter-space EMA memory and gradient projection.
+- [`train.py`](leworldmodel/train.py) — integration at the shared encoder/projector boundary.
+- [`interface_cycle_campaign.py`](leworldmodel/additional_files/interface_cycle_campaign.py) — matched training and evaluation campaign.
+- [`paper/`](paper/) — working manuscript under active revision.
+
+## Evidence chain
+
+We deliberately separate four questions that a single downstream score cannot
+answer:
+
+1. **Information presence:** what remains linearly decodable from a frozen representation?
+2. **Geometric allocation:** how much latent distance is assigned to tag-only versus physical change?
+3. **Planner use:** does changing only the tag alter candidate costs, rankings, or the selected action sequence?
+4. **Closed-loop control:** does the learned representation support online CEM planning?
+
+### Tagged PushT representation probes
+
+Frozen ridge probes use the same 1,024 clips for every model. Higher `R²` is
+better; a negative value is worse than predicting the test-set mean.
+
+| Method | Pusher `R²` | Block xy `R²` | Block angle `R²` | Tag RGB `R²` |
+|---|---:|---:|---:|---:|
+| JEPA | 0.234 | 0.377 | -0.168 | **0.946** |
+| Ours | **0.996** | **0.953** | **0.689** | 0.919 |
+
+The tag remains decodable. The method therefore performs **feature
+reallocation**, not nuisance erasure: physical state becomes substantially
+more accessible while the tag loses geometric and decision-making dominance.
+
+### Matched latent allocation
+
+For each of 128 matched trajectories, we compare the latent path length caused
+by a tag-only RGB sweep with the path length caused by physical motion:
+
+```text
+allocation ratio = tag-only latent path length / physical latent path length
+```
+
+One denotes equal allocation; lower is preferable.
+
+| Method | Geometric mean | 95% bootstrap CI | Median |
+|---|---:|---:|---:|
+| JEPA | 20.87 | [18.85, 23.11] | 20.89 |
+| Ours | **1.42** | **[1.34, 1.51]** | **1.38** |
+
+### Fixed-candidate counterfactual planning
+
+We freeze the physical context, physical goal, and the same bank of 32
+candidate action sequences, then change only the `5 x 5` RGB tag. Lower is
+better for all three metrics.
+
+| Method | Pair-order reversal | Selected candidate changed | Normalized cost distortion |
+|---|---:|---:|---:|
+| JEPA | 9.84% | 69.53% | 58.36% |
+| Ours | **2.27%** | **7.03%** | **10.78%** |
+
+- **Pair-order reversal** measures how often a pair of candidate trajectories
+  swaps relative rank after the tag change.
+- **Selected candidate changed** tests whether the minimum-cost action sequence
+  changes.
+- **Normalized cost distortion** is the tag-induced cost RMSE divided by the
+  standard deviation of the reference candidate costs.
+
+These interventions show that the tag is not merely decodable under JEPA: it
+causally changes the cost landscape used by the planner.
+
+### Online CEM planning
+
+Each result below uses 50 evaluation episodes, training seed 0, and evaluation
+seed 42.
+
+| Task | Condition | Ours |
+|---|---|---:|
+| PushT | clean | 92% |
+| PushT | tagged | 88% |
+| Reacher | clean | 88% |
+| TwoRoom | clean | **96%** |
+| Cube | clean | 80% |
+
+These are single-training-seed pilot results, not multi-seed estimates or a
+state-of-the-art leaderboard. The campaign and diagnostic scripts linked below
+record the exact frozen-checkpoint protocols.
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| [`leworldmodel/`](leworldmodel/) | Latent world-model training, planning, Tagged PushT, our routing method, and diagnostics |
+| [`paper/`](paper/) | Working manuscript; the public-facing draft is still being synchronized with the final experiments |
+| [`article/`](article/) | Technical notes, claim ledger, and experiment plans |
+| [`lejepa/`](lejepa/) | LeJEPA predictable-feature reproduction |
+| [`dinov3/`](dinov3/) | DINOv3 predictable-feature reproduction |
+| [`common/`](common/) | Shared rendering and experiment utilities |
+| [`VERIFYING.md`](VERIFYING.md) | Audit trail for modifications to vendored upstream code |
+
+## Installation
+
+The environment is pinned for Python 3.12 and CUDA-enabled PyTorch. We use
+[`uv`](https://docs.astral.sh/uv/) for reproducible dependency management.
+
+```bash
+git clone https://github.com/Enigma-Incorporated/The-Obsessed-Encoder.git
+cd The-Obsessed-Encoder
+uv sync --frozen
+```
+
+For offline experiment logging:
+
+```bash
+export WANDB_MODE=offline
+```
+
+Run the CPU test suite:
+
+```bash
+uv run pytest -m "not gpu"
+```
+
+Run the focused gradient-routing tests:
+
+```bash
+uv run pytest -q \
+  leworldmodel/additional_files/tests/test_bloop_gradient_routing.py \
+  leworldmodel/additional_files/tests/test_interface_cycle_campaign.py
+```
+
+## Reproducing the control-protected experiments
+
+The full campaign launcher targets a Slurm cluster. It performs a preflight
+test, trains matched task configurations, and schedules the corresponding
+50-episode evaluations:
+
+```bash
+uv run python leworldmodel/additional_files/interface_cycle_campaign.py \
+  --routing bloop \
+  --benchmarks tagged_pusht,clean_pusht,clean_reacher,clean_tworoom,clean_cube \
+  --submit
+```
+
+The main tagged-PushT diagnostic entry points are:
+
+- [`bloop_tagged_diagnostics_campaign.py`](leworldmodel/additional_files/bloop_tagged_diagnostics_campaign.py) — frozen probes and matched diagnostics.
+- [`bloop_feature_allocation_campaign.py`](leworldmodel/additional_files/bloop_feature_allocation_campaign.py) — tag/physical latent-path allocation.
+- [`bloop_counterfactual_visual_campaign.py`](leworldmodel/additional_files/bloop_counterfactual_visual_campaign.py) — fixed-candidate tag interventions.
+- [`bloop_paper_visuals_campaign.py`](leworldmodel/additional_files/bloop_paper_visuals_campaign.py) — paper-facing figures from archived results.
+
+Datasets and generated results are intentionally not committed. Runners use
+`DATA_DIR`, `RESULTS_DIR`, and `STABLEWM_HOME` to keep large artifacts outside
+the source tree.
+
+## Repository lineage
+
+This repository began as the companion code for Enigma's
+[**The Obsessed Encoder**](https://www.enigma.inc/posts/obsessed-encoder), which
+demonstrated that a faint, predictable visual feature can dominate
+self-supervised representations across LeJEPA, DINOv3, and LeWorldModel. The
+current work builds on that diagnosis and asks how to repair the optimization
+interface of an end-to-end latent world model.
+
+Vendored upstream implementations are modified only inside explicitly marked,
+default-inert blocks:
+
+```python
 # >>> obsessed-encoder: <what and why>
 ...
 # <<< obsessed-encoder
 ```
 
-Every marked block is inert at its defaults — with no watermark configured the
-code paths, math, and augmentations are exactly upstream's.  Each example's
-README carries its complete marked-change inventory.  Grep for
-`obsessed-encoder` to see every line we touched.
+See [`VERIFYING.md`](VERIFYING.md) and the `additional_files/README.md` inside
+each reproduction for the complete change inventory and upstream commit pins.
 
-| Example | Upstream | What is planted |
-|---|---|---|
-| [`lejepa/`](lejepa/additional_files/README.md) | [LeJEPA](https://arxiv.org/abs/2511.08544) minimal recipe (ViT-S/8) | per-image luminance watermark, opacity 0.05 |
-| [`dinov3/`](dinov3/additional_files/README.md) | [DINOv3](https://arxiv.org/abs/2508.10104) `vitl_im1k_lin834` recipe (ViT-L/16) | the same watermark, opacity 0.1 |
-| [`leworldmodel/`](leworldmodel/additional_files/README.md) | [LeWorldModel](https://arxiv.org/abs/2603.19312) on PushT ([lucas-maes/le-wm](https://github.com/lucas-maes/le-wm) @ `8edfeb3`) | a 5×5 corner square, coloured once per episode |
+## Current scope and limitations
 
-## The three groups
+- Reported planning results currently use one training seed and one evaluation
+  seed; multi-seed validation remains necessary.
+- The protected EMA direction is a local, noisy proxy for current control
+  demand, not a complete semantic oracle.
+- Orthogonalizing a prediction update provides a local first-order statement;
+  it does not guarantee invariance over finite Adam updates or long training.
+- Tagged PushT uses a deliberately controlled, episode-constant nuisance.
+  Richer and naturally occurring distractors remain future work.
 
-Every experiment runs the same three configurations (the blog's
-baseline / test / control):
+## Acknowledgements
 
-* **baseline — `clean`**: unmodified data.
-* **test — `watermarked`**: a faint per-image pattern, repeated across the frame —
-  a *predictable* feature every augmented view shares.
-* **control — `random_control`**: the identical renderer and per-tile energy, but a
-  different pattern at every tile position — matched pixels, nothing
-  predictable to capture.
-
-The LeWM case instantiates the same template with its own group names
-(`baseline` / `colored_square_episode` / `colored_square_frame`, plus the
-task-semantic `randgoal` exhibit) — see its
-[README](leworldmodel/additional_files/README.md) for the mapping.
-
-`random_control` differs from `watermarked` in exactly one knob (the repeat
-flag); `clean` carries no watermark configuration at all.  Tests enforce this
-discipline (`test_configs.py` in each example).
-
-## Quickstart (uv)
-
-Needs [uv](https://docs.astral.sh/uv/), an NVIDIA GPU, and a C/C++ compiler on
-`PATH` (`apt-get install gcc g++`) — the DINOv3 recipe trains under
-`torch.compile`, whose Triton backend builds a small C extension at runtime.
-
-```bash
-uv sync                                              # exact locked environment
-uv run python lejepa/additional_files/prepare_data.py      # IN-1k data (~50 GB incl. Arrow cache)
-uv run python lejepa/additional_files/run.py --seeds 3 --gpus 0
-uv run python lejepa/additional_files/run.py --plot-only   # figures from local runs
-```
-
-The DINOv3 example's preparation also fetches the NYU-depth protocol data for
-its dense probe (a ~6.7 GB Google Drive pull; `fetch_nyu.py` remains the
-standalone/retry path and accepts a browser-downloaded archive):
-
-```bash
-uv run python dinov3/additional_files/prepare_data.py
-uv run python dinov3/additional_files/run.py --seeds 3 --gpus 0,1,2
-```
-
-Every run the runner launches is printed as a single human-runnable command —
-copy it to reproduce any run by hand.  Results land under `RESULTS_DIR`
-(default `./results`), one directory per run, with `metrics.jsonl` as the
-source of truth for every figure and `summary.json` as the completion marker
-(re-invocations skip completed runs; `--force` reruns).  Datasets live under
-`DATA_DIR` (default `./data`).  wandb is optional monitoring: `WANDB_MODE=offline`
-or `disabled` is fully functional.
-
-## Reproducing on a fresh GPU box
-
-The published results were produced with this exact lockfile on the public
-PyTorch runtime image, `pytorch/pytorch:2.9.1-cuda12.8-cudnn9-runtime`.  From
-a bare container (or any fresh CUDA box), four setup steps recreate that
-environment:
-
-```bash
-# 1. system packages: a C/C++ compiler (torch.compile's Triton backend builds a
-#    small extension at runtime) and headless-Chrome's shared libraries
-apt-get update && apt-get install -y --no-install-recommends gcc g++ git \
-  libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 \
-  libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
-  libpango-1.0-0 libcairo2 libasound2 libatspi2.0-0 libxshmfence1 fonts-liberation curl
-
-# 2. the locked Python environment
-
-curl -LsSf https://astral.sh/uv/0.10.7/install.sh | sh
-uv sync --frozen
-
-# 3. Chrome for figure export (plotly renders through kaleido, which drives a
-#    real browser)
-uv run plotly_get_chrome -y
-
-# 4. wandb: offline unless you have credentials (the runners default to live
-#    logging; without a key they crash at run start)
-export WANDB_MODE=offline    # or: wandb login
-
-# 5. data + runs, exactly as in the uv quickstart above
-uv run python lejepa/additional_files/prepare_data.py
-uv run python lejepa/additional_files/run.py --seeds 3 --gpus 0
-```
-
-**wandb**: runs work fully offline (`WANDB_MODE=offline` or `disabled`); the
-offline records land inside each run directory and can be uploaded later from
-any machine with credentials (`wandb sync results/<run>/wandb/offline-run-*`).
-
-**Interrupted boxes lose nothing**: completed runs are skipped via their
-`summary.json`, an interrupted DINOv3 run resumes natively from its
-checkpoint, and an interrupted LeJEPA run restarts (the upstream minimal
-recipe has no checkpointing — a deliberate non-addition).
-
-## Hardware and runtimes
-
-Measured on dedicated H100-80GB pods (release campaign, one GPU per run);
-collapse onset is visible within ~1.5 h in every system.
-
-| Example | Minimum GPU | Approx. runtime per run |
-|---|---|---|
-| LeJEPA (30K steps, bs 256, V=4) | 48 GB-class GPU (peak ~42 GB) | ~2.5 h |
-| DINOv3 (50K iterations, ViT-L bs 128) | 40 GB-class GPU (peak ~24 GB — the shipped config carries upstream's activation checkpointing; without it, iBOT's variable masking peaks past 80 GB) | ~10–11 h (incl. the dense NYU tail) |
-| LeWM (10 epochs, PushT) | any recent CUDA GPU | ~2–7 h (randgoal fastest) |
-
-## Expected results
-
-Filled in from the release runs (3 seeds per group); see each example's README
-for the qualitative reading in the meantime.
-
-## Version fidelity
-
-The obvious objection to "we ran their code and it degraded" is "you ran it on
-different or buggy dependency versions."  Three answers, in increasing order of
-strength:
-
-1. **Pin-to-upstream mapping.**  Science-relevant packages are pinned exactly
-   (see `pyproject.toml` / `uv.lock`), chosen to satisfy each upstream's own
-   declared environment:
-
-   | Upstream declares | We pin | Why |
-   |---|---|---|
-   | LeJEPA: torch / torchvision / timm (unpinned) | torch 2.9.1, torchvision 0.24.1, timm 1.0.27 | current stable at implementation time; the fidelity anchor below reproduces the published curve on it |
-   | DINOv3 `conda.yaml`: python 3.11, torch (unpinned) | python 3.12, torch 2.9.1 | one shared environment for all examples; the published NYU-depth number reproduces exactly on it (anchor below) |
-   | DINOv3: numpy (unpinned; release predates numpy 2 scalar-promotion) | numpy 2.2.6 + a marked float32 restore in the depth-eval wrapper | see `dinov3/additional_files/dense_eval.py` — values untouched, dtype restored to what numpy 1.x produced |
-   | figure rendering (not science-bearing) | plotly 6.9.0, kaleido 1.3.0, Chrome-for-Testing via `plotly_get_chrome` | kaleido ≥1 renders through a real browser; the Chrome build is fetched pinned at setup (step 3 above) |
-
-2. **Fidelity anchors.**  Upstream-published numbers reproduced in this exact
-   environment: the LeJEPA minimal recipe's Imagenette accuracy (**~90.4%**
-   top-1, matching the published ~90.7% curve), and DINOv3's published
-   NYU-depth RMSE (**0.349** — exact reproduction via the vendored protocol on
-   the BTS data).  A broken environment does not reproduce published numbers.
-
-3. **The control argument** (the strong one).  All three groups share one
-   environment, one lockfile, one container.  A version bug would have to
-   affect the `watermarked` group but not the identically-run `random_control` —
-   the test-vs-control comparison is version-confounder-immune by construction.
-
-## Tests
-
-```bash
-uv run pytest                 # CPU suite
-uv run pytest -m gpu          # end-to-end smokes (needs a CUDA device)
-```
-
+This codebase builds on
+[LeJEPA](https://arxiv.org/abs/2511.08544),
+[LeWorldModel](https://arxiv.org/abs/2603.19312),
+[DINOv3](https://arxiv.org/abs/2508.10104), and
+[Bloop](https://arxiv.org/abs/2402.02998). Refer to the vendored projects and
+their respective licenses before redistributing derived code.

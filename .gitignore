@@ -8,7 +8,9 @@ wandb/
 *.log
 outputs/
 .pytest_cache/
+.pytest_tmp*/
 *.egg-info/
 wandb_resume.json
 lightning_logs/
 /logs/
+/tmp/
