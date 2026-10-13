@@ -26,6 +26,19 @@ signal; only the prediction gradient entering the encoder is routed.
 
 ## Method at a glance
 
+```mermaid
+flowchart LR
+    O[Observation trajectory] --> E[Shared encoder + projector]
+    A[Actions] --> P[Action-conditioned predictor]
+    E --> P --> LP[Prediction loss]
+    E --> C[Inverse action + reachability] --> LC[Control loss]
+    LP --> R[Gradient router]
+    LC --> M[EMA control-gradient reference] --> R
+    R --> U[Compatible prediction update]
+    LC --> U
+    U --> E
+```
+
 Let `L_control` combine inverse-action and reachability supervision, and let
 `L_pred` be the action-conditioned latent prediction loss. For the shared
 encoder parameters, we maintain an exponential moving average of the control
