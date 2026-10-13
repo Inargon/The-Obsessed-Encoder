@@ -151,7 +151,8 @@ The environment is pinned for Python 3.12 and CUDA-enabled PyTorch. We use
 [`uv`](https://docs.astral.sh/uv/) for reproducible dependency management.
 
 ```bash
-git clone https://github.com/Enigma-Incorporated/The-Obsessed-Encoder.git
+git clone --branch experiment/randgoal-decision-aligned \
+  https://github.com/Enigma-Incorporated/The-Obsessed-Encoder.git
 cd The-Obsessed-Encoder
 uv sync --frozen
 ```
@@ -160,6 +161,17 @@ For offline experiment logging:
 
 ```bash
 export WANDB_MODE=offline
+```
+
+The campaign launchers accept environment overrides for all machine-specific
+storage. Set these before running outside the authors' cluster:
+
+```bash
+export STABLEWM_HOME=/path/to/stablewm-data-and-checkpoints
+export LOCAL_DATASET_DIR="$STABLEWM_HOME"
+export SPT_CACHE_DIR=/path/to/cache/stable-pretraining
+export XDG_CACHE_HOME=/path/to/cache/xdg
+export TMPDIR=/path/to/scratch
 ```
 
 Run the CPU test suite:
@@ -188,6 +200,10 @@ uv run python leworldmodel/additional_files/interface_cycle_campaign.py \
   --benchmarks tagged_pusht,clean_pusht,clean_reacher,clean_tworoom,clean_cube \
   --submit
 ```
+
+Without `--submit`, the launcher prints the experiment plan without creating
+Slurm jobs. Cluster-specific partitions and node constraints can be supplied
+through its command-line options.
 
 The main tagged-PushT diagnostic entry points are:
 
