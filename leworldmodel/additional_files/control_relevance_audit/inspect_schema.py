@@ -44,24 +44,24 @@ def main():
             print('FIELD', key, 'SHAPE', f[key].shape, 'ATTRIBUTES', {k: str(v) for k, v in f[key].attrs.items()})
         episodes = f['episode_idx'][:].reshape(-1)
         steps = f['step_idx'][:].reshape(-1)
-        valid = np.arange(min(len(dataset), len(episodes)-6))
-        valid = valid[(episodes[valid] == episodes[valid+6]) & (steps[valid+6]-steps[valid] == 6)]
-        rows = np.sort(np.random.default_rng(73).choice(valid, min(64, len(valid)), replace=False))
-        if len(rows) < 5:
-            raise ValueError('Insufficient windows')
-        for n, row in enumerate(rows):
-            item = dataset[int(row)]
-            for key in ('state', 'action'):
-                actual = np.asarray(item[key])
-                expected = f[key][int(row):int(row)+7]
-                np.testing.assert_allclose(actual, expected, rtol=0, atol=0,
-                    err_msg=f'Loader index is not raw H5 row: {key}, row={row}')
-            if n < 3:
-                np.testing.assert_array_equal(np.asarray(item['pixels']), f['pixels'][int(row):int(row)+7],
-                    err_msg='Pixel window differs from raw H5')
+        from window_mapping import resolve_windows
+        clips=np.sort(np.random.default_rng(73).choice(len(dataset),min(64,len(dataset)),replace=False))
+        rows,ids=resolve_windows(dataset,clips,episodes,steps)
+        if len(rows)<5:raise ValueError('Insufficient windows')
+        for n,(clip,row) in enumerate(zip(clips,rows)):
+            item=dataset[int(clip)]
+            for key in ('state','action'):
+                np.testing.assert_array_equal(np.asarray(item[key]),f[key][int(row):int(row)+7],
+                    err_msg=f'Clip/raw mismatch: {key}, clip={clip}, row={row}')
+            np.testing.assert_array_equal(np.asarray(item['episode_idx']).reshape(-1),episodes[row:row+7])
+            np.testing.assert_array_equal(np.asarray(item['step_idx']).reshape(-1),steps[row:row+7])
+            if n<3:
+                np.testing.assert_array_equal(np.asarray(item['pixels']),f['pixels'][int(row):int(row)+7].transpose(0,3,1,2))
+        print('CLIP_RAW_MAPPING_EXAMPLES',list(zip(clips[:5].tolist(),rows[:5].tolist(),ids[:5].tolist())))
         print('RAW_ROW_AND_WINDOW_ALIGNMENT_VERIFIED', len(rows), flush=True)
         # Descriptive diagnostics only: no inferred physical labels or causal claims.
-        chosen = np.sort(np.random.default_rng(74).choice(valid, min(4096, len(valid)), replace=False))
+        diagnostic_clips=np.sort(np.random.default_rng(74).choice(len(dataset),min(4096,len(dataset)),replace=False))
+        chosen,_=resolve_windows(dataset,diagnostic_clips,episodes,steps)
         state = f['state'][chosen].astype(float)
         following = f['state'][chosen+1].astype(float)
         action = f['action'][chosen].astype(float)

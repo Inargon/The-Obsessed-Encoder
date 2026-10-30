@@ -34,4 +34,25 @@ class AuditTests(unittest.TestCase):
   d['features'][0,0]=np.nan
   with self.assertRaises(ValueError):validate(d)
 
+class WindowMappingTests(unittest.TestCase):
+ def make_dataset(self):
+  from types import SimpleNamespace
+  class FakeDataset(SimpleNamespace):
+   def __len__(self):return len(self.clip_indices)
+  return FakeDataset(frameskip=1,span=3,lengths=np.array([4,5]),offsets=np.array([0,4]),clip_indices=[(0,0),(0,1),(1,0),(1,1),(1,2)])
+ def test_clip_index_is_not_raw_row(self):
+  from window_mapping import resolve_windows
+  rows,ids=resolve_windows(self.make_dataset(),[1,2,4],np.array([10]*4+[22]*5),np.array([0,1,2,3,0,1,2,3,4]))
+  np.testing.assert_array_equal(rows,[1,4,6]);np.testing.assert_array_equal(ids,[10,22,22])
+ def test_invalid_boundary_rejected(self):
+  from window_mapping import resolve_windows
+  d=self.make_dataset();d.clip_indices[2]=(0,2)
+  with self.assertRaises(ValueError):resolve_windows(d,[2],np.array([10]*4+[22]*5),np.arange(9))
+ def test_invalid_episode_metadata_rejected(self):
+  from window_mapping import resolve_windows
+  with self.assertRaises(ValueError):resolve_windows(self.make_dataset(),[2],np.arange(9),np.arange(9))
+ def test_invalid_step_metadata_rejected(self):
+  from window_mapping import resolve_windows
+  with self.assertRaises(AssertionError):resolve_windows(self.make_dataset(),[2],np.array([10]*4+[22]*5),np.zeros(9))
+
 if __name__=='__main__':unittest.main()

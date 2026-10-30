@@ -67,3 +67,12 @@ Do not mix horizons, units or state schemas within a bundle.
     python -m unittest discover -s leworldmodel/additional_files/control_relevance_audit -p test_audit.py -v
 
 Tests use synthetic arrays. Passing tests is not empirical research evidence.
+
+## Index correction (2026-10-31)
+
+Smoke job 111915 is superseded: the old exporter assigned episode labels using
+clip IDs as raw row offsets, so its split is not validated. New exports use
+clip_indices to obtain episode and local start, then add offsets[episode].
+Each selected window is checked against raw state/action and episode/step metadata
+before preprocessing. Bundles retain both clip_index and raw row_index.
+Rerun schema inspection, then rerun smoke into a new job-specific output directory.

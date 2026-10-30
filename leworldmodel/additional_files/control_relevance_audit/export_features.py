@@ -50,20 +50,29 @@ def main():
     steps=np.asarray(dataset.get_col_data('step_idx')).reshape(-1)
     if len(steps)!=len(episodes):raise ValueError('Metadata columns have different lengths')
     if len(steps)<nsteps:raise ValueError('Dataset shorter than requested window')
-    valid=np.arange(min(len(dataset),len(steps)-nsteps+1))
-    valid=valid[(episodes[valid]==episodes[valid+nsteps-1]) &
-                (steps[valid+nsteps-1]-steps[valid]==nsteps-1)]
+    from window_mapping import resolve_windows
     rng=np.random.default_rng(args.seed)
-    chosen=np.sort(rng.choice(valid,min(args.samples,len(valid)),replace=False))
-    if len(np.unique(episodes[chosen]))<5:raise ValueError('Sampled fewer than five episodes; increase --samples')
+    chosen=np.sort(rng.choice(len(dataset),min(args.samples,len(dataset)),replace=False))
+    raw_rows,episode_ids=resolve_windows(dataset,chosen,episodes,steps)
+    if len(np.unique(episode_ids))<5:raise ValueError('Sampled fewer than five episodes')
+    raw_state=np.asarray(dataset.get_col_data('state'))
+    raw_action=np.asarray(dataset.get_col_data('action'))
+    for clip,row in zip(chosen,raw_rows):
+        item=dataset[int(clip)]
+        for key,raw in (('state',raw_state),('action',raw_action)):
+            np.testing.assert_array_equal(np.asarray(item[key]),raw[row:row+nsteps],
+                err_msg=f'Clip/raw mismatch: {key}, clip={clip}, row={row}')
+        np.testing.assert_array_equal(np.asarray(item['episode_idx']).reshape(-1),episodes[row:row+nsteps])
+        np.testing.assert_array_equal(np.asarray(item['step_idx']).reshape(-1),steps[row:row+nsteps])
+    print('CLIP_TO_RAW_ALIGNMENT_VERIFIED',len(chosen),flush=True)
     dataset.transform=get_img_preprocessor('pixels','pixels',img_size=224)
     device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     torch.manual_seed(args.seed)
     model=load_inference_model(args.run,args.checkpoint).to(device).eval().requires_grad_(False)
-    fields={k:[] for k in ('features','state','previous_state','next_state','action','episode_id','row_index')}
+    fields={k:[] for k in ('features','state','previous_state','next_state','action','episode_id','row_index','clip_index')}
     with torch.no_grad():
-        for row in chosen:
-            item=dataset[int(row)];s=torch.as_tensor(item['state']).cpu().numpy()
+        for clip,row,episode in zip(chosen,raw_rows,episode_ids):
+            item=dataset[int(clip)];s=torch.as_tensor(item['state']).cpu().numpy()
             pixels=torch.as_tensor(item['pixels']);actions=torch.as_tensor(item['action']).cpu().numpy()
             if s.ndim!=2 or s.shape[0]!=nsteps or s.shape[1]<1 or len(pixels)!=nsteps or len(actions)!=nsteps:
                 raise ValueError('Unexpected temporal layout; expected frameskip=1 pose/action windows')
@@ -71,7 +80,7 @@ def main():
             if args.representation=='projection':emb=model.projector(emb)
             values={'features':emb.flatten().float().cpu().numpy(),'state':s[1], 'previous_state':s[0],
                 'next_state':s[-1], 'action':actions[1:-1].reshape(-1),
-                'episode_id':episodes[row], 'row_index':row}
+                'episode_id':episode, 'row_index':row, 'clip_index':clip}
             for k,v in values.items():fields[k].append(v)
             if len(fields['features'])%32==0:print('EXPORTED',len(fields['features']),flush=True)
     from audit import validate
@@ -79,6 +88,7 @@ def main():
     args.out.parent.mkdir(parents=True,exist_ok=True)
     with args.out.open('xb') as f:np.savez_compressed(f,**bundle)
     provenance=dict(vars(args),out=str(args.out),checkpoint_sha256=digest.hexdigest(),device=str(device),
+        index_mapping='clip_indices -> episode offset + local start; checked against raw arrays',
         frameskip=1,history_frames=2,tag='none; export clean dataset only',
         state_order='Unmodified dataset columns; field semantics not yet verified',
         state_dim=int(bundle['state'].shape[1]),numpy_version=np.__version__,torch_version=torch.__version__,

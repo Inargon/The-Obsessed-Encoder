@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 root=Path(sys.argv[1])
 with np.load(root/'jepa.npz',allow_pickle=False) as a, np.load(root/'ours.npz',allow_pickle=False) as b:
- for key in ['row_index','episode_id','state','previous_state','next_state','action']:
+ for key in ['clip_index','row_index','episode_id','state','previous_state','next_state','action']:
   np.testing.assert_array_equal(a[key],b[key],err_msg='Unmatched input '+key)
 reports={name:json.loads((root/(name+'-report.json')).read_text()) for name in ['jepa','ours']}
 assert reports['jepa']['protocol']['episodes']==reports['ours']['protocol']['episodes']
