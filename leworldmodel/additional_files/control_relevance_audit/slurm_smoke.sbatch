@@ -19,13 +19,16 @@ export OPENBLAS_NUM_THREADS=2
 export PYTHONPATH="$repo_root${PYTHONPATH:+:$PYTHONPATH}"
 cd "$repo_root/leworldmodel"
 audit=additional_files/control_relevance_audit
+samples="${AUDIT_SAMPLES:-128}"
+split_seed="${AUDIT_SPLIT_SEED:-73}"
 out="$repo_root/leworldmodel/results/control-relevance-smoke-${SLURM_JOB_ID:?Submit through sbatch}"
 mkdir "$out"
+printf 'AUDIT_SAMPLES=%s SPLIT_SEED=%s\n' "$samples" "$split_seed"
 "$python_bin" -m unittest discover -s "$audit" -p test_audit.py -v
 for label in jepa ours; do
  if [ "$label" = jepa ]; then run=pusht_clean_jepa_matched_full_seed0; else run=pusht_clean_ours_matched_full_seed0; fi
- "$python_bin" -u "$audit/export_features.py" --run "$run" --checkpoint weights_epoch_10.pt --dataset "$STABLEWM_HOME/datasets/pusht_expert_train.h5" --cache-dir "$LOCAL_DATASET_DIR" --samples 128 --horizon 5 --seed 73 --out "$out/$label.npz"
- "$python_bin" -u "$audit/audit.py" --input "$out/$label.npz" --out "$out/$label-report.json" --seed 73
+ "$python_bin" -u "$audit/export_features.py" --run "$run" --checkpoint weights_epoch_10.pt --dataset "$STABLEWM_HOME/datasets/pusht_expert_train.h5" --cache-dir "$LOCAL_DATASET_DIR" --samples "$samples" --horizon 5 --seed 73 --out "$out/$label.npz"
+ "$python_bin" -u "$audit/audit.py" --input "$out/$label.npz" --out "$out/$label-report.json" --seed "$split_seed"
 done
 "$python_bin" - "$out" <<'PY'
 import json,sys
