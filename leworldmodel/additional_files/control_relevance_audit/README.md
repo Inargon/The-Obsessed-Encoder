@@ -76,3 +76,19 @@ clip_indices to obtain episode and local start, then add offsets[episode].
 Each selected window is checked against raw state/action and episode/step metadata
 before preprocessing. Bundles retain both clip_index and raw row_index.
 Rerun schema inspection, then rerun smoke into a new job-specific output directory.
+
+## Multiple split readouts
+
+`slurm_readout.sbatch` reuses the corrected exports from job 111924 (override with
+AUDIT_INPUT_DIR). It evaluates split seeds 73/74/75 with linear ridge and a
+nonlinear random-Fourier feature ridge probe with a linear skip. The feature
+map seed is fixed; width is 256. Scaling, centering and target normalization
+use only training episodes; bandwidth and regularization use validation only.
+Outputs include all shared baselines, per-column metrics, selected hyperparameters,
+source hashes, and episode split lists. No encoder is trained and no new GPU
+feature export is performed. The current submission requests gpu_shared for
+compatibility with the known cluster queue, although computation is CPU/NumPy.
+Repeated splits do not measure encoder training-seed uncertainty. This limited
+nonlinear family cannot establish information absence if it fails. These are
+probe-held-out episodes, not verified encoder-training-held-out episodes.
+Raw angular columns remain descriptive and require a later periodic target audit.
