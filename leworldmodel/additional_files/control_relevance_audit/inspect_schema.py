@@ -37,7 +37,8 @@ def main():
                     selected.update(range(max(0, i-2), min(len(lines), i+65)))
             for i in sorted(selected):
                 print(f'{i+1}: {lines[i]}')
-    with h5py.File(path, 'r') as f:
+    # Match the dataset loader's SWMR read mode for simultaneous handles.
+    with h5py.File(path, 'r', swmr=True) as f:
         print('H5_ATTRIBUTES', {k: str(v) for k, v in f.attrs.items()})
         for key in ('state', 'action', 'proprio'):
             print('FIELD', key, 'SHAPE', f[key].shape, 'ATTRIBUTES', {k: str(v) for k, v in f[key].attrs.items()})
