@@ -63,7 +63,9 @@ def aligned_visual_inputs(bundle, initial, goals, ids):
     np.testing.assert_array_equal(bundle['recorded_state'],np.column_stack([initial,expected]),
                                   err_msg='Cached state/goal rows do not match fixture')
     result={}
-    for name in ('jepa','ours'):
+    if ('jepa_backbone' in bundle)!=('ours_backbone' in bundle):raise ValueError('Need both backbone models')
+    labels=('jepa','ours','jepa_backbone','ours_backbone') if 'jepa_backbone' in bundle else ('jepa','ours')
+    for name in labels:
         x=bundle[name]
         if x.ndim!=2 or x.shape[0]!=len(ids) or x.shape[1]<=4 or not np.isfinite(x).all():
             raise ValueError('Invalid cached visual features')

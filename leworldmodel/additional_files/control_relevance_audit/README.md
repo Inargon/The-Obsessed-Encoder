@@ -149,3 +149,16 @@ parameter counts differ. The three output heads correspond to the three fixed
 candidate sequences; there is no generalization claim to unseen action sequences.
 No new render, feature export or encoder training is performed. Source artifacts
 are retained; results use a new job-specific directory.
+
+## Backbone versus projection localization
+
+`slurm_backbone_terminal.sbatch` extracts pre-projector CLS on the same cached
+fixture initial images, verifies the checkpoint hashes, and reproduces the old
+projected features within rtol/atol 1e-4 before saving a new cache. The old cache is
+retained. All four visual inputs plus recorded state use the same terminal targets,
+pair splits and probe search. Goal suffix validation applies to all four caches.
+Input dimensions differ, so equal hidden widths are not equal parameter counts.
+A probe gap localizes readout performance; it does not prove irreversible loss or
+a causal effect of a particular training objective. Single-frame, one-checkpoint-
+per-model and rendered-goal limitations remain. Full extraction is verified only
+when the cluster job passes its recomputed-projection check.

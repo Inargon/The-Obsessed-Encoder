@@ -20,4 +20,13 @@ class CachedVisualInputTests(unittest.TestCase):
  def test_missing_goal_suffix_rejected(self):
   b,s,g,ids=self.data();b['jepa'][0,-1]+=1
   with self.assertRaises(AssertionError):aligned_visual_inputs(b,s,g,ids)
+ def test_backbones_also_verified_and_stripped(self):
+  b,s,g,ids=self.data()
+  b['jepa_backbone']=b['jepa'].copy();b['ours_backbone']=b['ours'].copy()
+  result=aligned_visual_inputs(b,s,g,ids)
+  self.assertEqual(set(result),{'jepa','ours','jepa_backbone','ours_backbone'})
+  self.assertEqual(result['ours_backbone'].shape,(4,5))
+ def test_one_missing_backbone_rejected(self):
+  b,s,g,ids=self.data();b['jepa_backbone']=b['jepa'].copy()
+  with self.assertRaises(ValueError):aligned_visual_inputs(b,s,g,ids)
 if __name__=='__main__':unittest.main()
