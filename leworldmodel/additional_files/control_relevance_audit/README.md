@@ -92,3 +92,18 @@ Repeated splits do not measure encoder training-seed uncertainty. This limited
 nonlinear family cannot establish information absence if it fails. These are
 probe-held-out episodes, not verified encoder-training-held-out episodes.
 Raw angular columns remain descriptive and require a later periodic target audit.
+
+## Delayed pair single-frame readout
+
+`slurm_pair_readout.sbatch` reads fixture job 112313 (override PAIR_INPUT_DIR).
+One initial RGB image per scene is encoded with each frozen checkpoint and its
+projector. No repeated-image history is fabricated. Probe targets are the three
+terminal candidate costs centered per scene. Linear and RFF probes use the same
+pair-group splits (73/74/75) and validation search. Both scenes stay in the same
+split. Recorded initial state and train-mean candidate costs are baselines.
+Reports retain test pair IDs, chosen and true candidate actions, candidate regret,
+and separate metrics for the fixed delayed/choice-difference mask. All pairs train
+the probe; that mask is used only for descriptive reporting. Thirty-two pairs are
+only a pipeline check. This does not test closed-loop control, a new method, or
+match the original two-frame probe protocol. Runtime checkpoint loading and image
+preprocessing require verification in the cluster environment.
