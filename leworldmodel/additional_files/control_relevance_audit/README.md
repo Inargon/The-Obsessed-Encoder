@@ -121,3 +121,18 @@ are recorded. Split 73 is the primary fixed pair-group split; 74/75 are sensitiv
 checks on overlapping data. More pairs and goal variation do not guarantee that
 action-label imbalance is removed or that the recorded-state probe succeeds.
 Retain all results even if baseline dominance persists. New output is job-specific.
+
+## Recorded-state terminal prediction positive-control attempt
+
+`slurm_state_terminal.sbatch` reuses fixture 112328 without rendering or encoder
+training. Each fixed candidate sequence has a terminal block x/y/sin/cos target.
+Initial recorded state (periodic angle encoding) is the only dynamics input;
+goals are used solely in analytic terminal scoring. True terminal poses must
+reproduce the saved costs before any fitting. Linear ridge, RFF ridge and a small
+MLP use training-only normalization and validation-only hyperparameter/epoch
+selection. Split 73 remains primary, 74/75 sensitivity checks. Baselines include
+training-mean candidate costs and a stationary block. The MLP uses seed 901,
+widths 64/128, weight decay 0/.001, 600 epochs with validation every 10 epochs.
+Local tests cover analytic scoring and data grouping; torch fitting requires the
+cluster runtime. No success is assumed. If the state-input control is inadequate,
+representation deficiency cannot be established by this protocol.
