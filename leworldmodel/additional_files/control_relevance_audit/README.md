@@ -136,3 +136,16 @@ widths 64/128, weight decay 0/.001, 600 epochs with validation every 10 epochs.
 Local tests cover analytic scoring and data grouping; torch fitting requires the
 cluster runtime. No success is assumed. If the state-input control is inadequate,
 representation deficiency cannot be established by this protocol.
+
+## Matched visual terminal readout
+
+`slurm_visual_terminal.sbatch` reuses fixture and cached projected features from
+112328. Fixture SHA256, row IDs, initial states and goal suffixes must match.
+The four appended goal coordinates are removed before terminal prediction;
+rendered images still contain the target outline, so this is not a goal-free
+visual representation. Recorded state, JEPA and ours use identical targets,
+pair splits and linear/RFF/MLP search settings. Input dimensionality and hence
+parameter counts differ. The three output heads correspond to the three fixed
+candidate sequences; there is no generalization claim to unseen action sequences.
+No new render, feature export or encoder training is performed. Source artifacts
+are retained; results use a new job-specific directory.
