@@ -73,19 +73,27 @@ def main():
                           'feature_dim':int(features[name].shape[1])}
         del model
         print('ENCODED_SINGLE_FRAMES',name,len(encoded),flush=True)
-    features['recorded_state']=d['initial_states'].reshape(n*2,-1)
+    goals=d.get('goals',np.tile(np.array([350.,256.,0.]),(n,1)))
+    if goals.shape!=(n,3):raise ValueError('Expected one goal pose per pair')
+    g=np.repeat(np.column_stack([goals[:,:2],np.sin(goals[:,2]),np.cos(goals[:,2])]),2,axis=0)
+    for name in list(features):features[name]=np.column_stack([features[name],g])
+    features['recorded_state']=np.column_stack([d['initial_states'].reshape(n*2,-1),g])
+    features['goal_only']=g
     with (args.out/'features.npz').open('xb') as f:
         np.savez_compressed(f,**features,pair_ids=pair_ids)
     report={'protocol':{'pairs':n,'seed_splits':[73,74,75],
         'representation':'single initial image -> projected CLS; no duplicated or fabricated history',
-        'target':'three centered terminal candidate costs; fixed goal from fixture',
+        'target':'three centered terminal candidate costs; explicit per-pair goal from fixture',
+        'goal_input':'goal x,y,sin(angle),cos(angle) appended to every feature input; separate goal-only baseline',
         'fitting':'frozen encoder; train-only probe fit/scaling, validation hyperparameters',
-        'limitations':['32-pair pipeline check; not a method comparison with adequate statistical power',
+        'limitations':['Constructed diagnostic distribution; statistical power depends on independent pair count',
             'Candidate action selection is not closed-loop planning or a globally optimal policy',
             'Held-out pairs belong to the same narrowly constructed simulator distribution',
             'RFF is a limited nonlinear probe; failure does not prove information loss',
             'Eligible-pair mask uses true simulator outcomes for diagnostic reporting only, not training selection',
             'Three splits overlap and are not independent training seeds']},
+        'best_action_counts':np.bincount(costs.argmin(1),minlength=costs.shape[1]).tolist(),
+        'primary_split_seed':73,'additional_splits':'74/75 are overlapping sensitivity checks, not independent replications',
         'input':str(path),'input_sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
         'checkpoints':provenance,'runs':[]}
     for seed in (73,74,75):

@@ -107,3 +107,17 @@ the probe; that mask is used only for descriptive reporting. Thirty-two pairs ar
 only a pipeline check. This does not test closed-loop control, a new method, or
 match the original two-frame probe protocol. Runtime checkpoint loading and image
 preprocessing require verification in the cluster environment.
+
+## Larger varied-goal diagnostic
+
+`slurm_goal_pairs.sbatch` collects 256 independent pairs with seed 902, then runs
+single-frame readouts automatically. Goal poses are sampled before rollout and
+shared by both scenes and all branches in each pair. Stored goals determine the
+terminal candidate costs; angle differences are wrapped. Goal x/y/sin/cos are
+explicit inputs for both encoders and recorded-state probes. Goal-only probes and
+a train-mean action baseline expose goal-conditioned or unconditional preferences.
+No label balancing or favorable-subset training is performed; best-action counts
+are recorded. Split 73 is the primary fixed pair-group split; 74/75 are sensitivity
+checks on overlapping data. More pairs and goal variation do not guarantee that
+action-label imbalance is removed or that the recorded-state probe succeeds.
+Retain all results even if baseline dominance persists. New output is job-specific.

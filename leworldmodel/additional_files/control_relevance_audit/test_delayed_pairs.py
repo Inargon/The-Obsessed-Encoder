@@ -14,4 +14,14 @@ class DelayedPairTests(unittest.TestCase):
  def test_angle_wrap(self):
   s=np.zeros((1,3,7));s[0,:,4]=[2*np.pi-.01,.01,.02]
   np.testing.assert_allclose(pose_change(s)[0,:,2],[0,.02,.03],atol=1e-10)
+class CandidateGoalTests(unittest.TestCase):
+ def test_goals_are_per_pair_and_angles_periodic(self):
+  from collect_delayed_pairs import candidate_cost
+  final=np.zeros((2,2,3,3));final[1,...,0]=10
+  goals=np.array([[0.,0.,2*np.pi],[10.,0.,0.]])
+  np.testing.assert_allclose(candidate_cost(final,goals),0,atol=1e-20)
+  goals[0,0]=5
+  c=candidate_cost(final,goals)
+  np.testing.assert_allclose(c[0],25);np.testing.assert_allclose(c[1],0)
+
 if __name__=='__main__':unittest.main()
