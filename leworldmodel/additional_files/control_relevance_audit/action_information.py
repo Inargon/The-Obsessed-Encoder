@@ -1,5 +1,7 @@
 """Frozen linear action readouts; predictive input recoverability is not causality."""
 import json
+import argparse
+from pathlib import Path
 import numpy as np
 from audit import split_episodes, score
 
@@ -52,8 +54,14 @@ def evaluate(data, seed=73):
     real = np.column_stack([context, data['real']])
     predicted = np.column_stack([context, data['predicted']])
     residual = data['predicted'] - data['real']
+    shuffled_residual = residual.copy()
+    rng = np.random.default_rng(seed + 1000)
+    for indices in splits:
+        shuffled_residual[indices] = residual[rng.permutation(indices)]
     inputs = {'history_and_past_actions': context, 'real_endpoint': real,
               'predicted_endpoint': predicted,
+              'real_plus_residual': np.column_stack([real, residual]),
+              'real_plus_shuffled_residual': np.column_stack([real, shuffled_residual]),
               'residual': np.column_stack([context, residual])}
     results = {k: readout(v, data['action'], splits,
                          transfer=predicted if k == 'real_endpoint' else None)
@@ -67,6 +75,7 @@ def evaluate(data, seed=73):
             'limitations': [
                 'Predictor directly receives the target action; recoverability alone is not hidden coding.',
                 'Linear probes measure accessibility, not total mutual information or irreversible loss.',
+                'Added residual dimensions change ridge geometry; shuffled control is a diagnostic, not a conditional independence test.',
                 'History includes all predictor image context and earlier actions, not the target action.',
                 'Episode holdout applies to probes, not necessarily pretrained encoders.',
                 'No intervention, closed-loop planning, or novelty conclusion follows from this audit.']}
@@ -78,3 +87,29 @@ def save_report(data, out):
         json.dump(reports, f, indent=2, allow_nan=False)
     for report in reports:
         print('ACTION_READOUT', report['seed'], json.dumps(report['readouts']), flush=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Re-read cached endpoints; no GPU extraction.')
+    parser.add_argument('--cache', type=Path, required=True)
+    parser.add_argument('--out', type=Path, required=True)
+    args = parser.parse_args()
+    bundles = {}
+    for label in ('jepa', 'ours'):
+        with np.load(args.cache / (label + '.npz'), allow_pickle=False) as f:
+            bundles[label] = dict(f)
+    for key in ('episode_id', 'row_index', 'clip_index', 'action', 'past_actions'):
+        np.testing.assert_array_equal(bundles['jepa'][key], bundles['ours'][key])
+    args.out.mkdir(parents=True, exist_ok=False)
+    for label, bundle in bundles.items():
+        print('MODEL', label, flush=True)
+        reports = [evaluate(bundle, seed) for seed in (73, 74, 75)]
+        with (args.out / (label + '-report.json')).open('x', encoding='utf-8') as f:
+            json.dump(dict(cache=str(args.cache.resolve()), reports=reports), f, indent=2, allow_nan=False)
+        for report in reports:
+            print('CONDITIONAL_READOUT', label, report['seed'],
+                  {k: v['r2'] for k, v in report['readouts'].items()}, flush=True)
+    print('CONDITIONAL_ACTION_AUDIT_COMPLETE', args.out, flush=True)
+
+
+if __name__ == '__main__': main()

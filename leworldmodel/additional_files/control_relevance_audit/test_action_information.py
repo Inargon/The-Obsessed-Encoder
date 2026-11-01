@@ -16,6 +16,8 @@ class ActionInformationTests(unittest.TestCase):
         result = evaluate(self.data())
         self.assertGreater(result['readouts']['predicted_endpoint']['r2'], .99)
         self.assertGreater(result['readouts']['residual']['r2'], .99)
+        self.assertGreater(result['readouts']['real_plus_residual']['r2'], .99)
+        self.assertLess(result['readouts']['real_plus_shuffled_residual']['r2'], .1)
         self.assertLess(result['readouts']['real_endpoint']['r2'], .1)
         self.assertLess(result['readouts']['real_endpoint']['transfer_same_frozen_readout']['r2'], .1)
 
@@ -23,6 +25,8 @@ class ActionInformationTests(unittest.TestCase):
         data = self.data(); data['real'] = data['predicted'].copy()
         r = evaluate(data)['readouts']['real_endpoint']
         self.assertEqual(r['r2'], r['transfer_same_frozen_readout']['r2'])
+        result = evaluate(data)
+        self.assertAlmostEqual(r['r2'], result['readouts']['real_plus_residual']['r2'])
 
     def test_holdout_does_not_change_fit(self):
         d = self.data(); train = np.arange(100)
