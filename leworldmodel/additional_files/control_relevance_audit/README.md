@@ -162,3 +162,29 @@ A probe gap localizes readout performance; it does not prove irreversible loss o
 a causal effect of a particular training objective. Single-frame, one-checkpoint-
 per-model and rendered-goal limitations remain. Full extraction is verified only
 when the cluster job passes its recomputed-projection check.
+
+## Native predictor action-information audit
+
+Submit `slurm_action_information.sbatch` from the repository root. It exports
+1024 identical clean windows for both epoch-10 checkpoints, using history 3,
+frameskip 5 and one-step prediction from the matched campaign. It checks raw
+state/action alignment before using the official training image and action
+transforms. If the installed loader packs frames differently, it stops rather
+than silently shifting targets. No checkpoint or training objective is changed.
+
+The target is the last context action block. Probes compare history plus prior
+actions alone, and that same context plus the real endpoint, predicted endpoint,
+or prediction residual. Ridge scaling and selection use train/validation only;
+splits 73/74/75 hold out entire episodes. A real-endpoint readout is also applied
+unchanged to predicted endpoints, including its original training scaler.
+Output is `results/action-information-JOBID/` with two NPZ caches, checkpoint
+hashes/provenance, and separate reports. The full-dataset action normalization
+reproduces training; it is distinct from train-only probe input normalization.
+
+Higher action readout scores do not establish hidden coding: the predictor
+receives those actions directly, and denoising or easier coordinates can explain
+the result. Scores are not mutual information. These probe holdouts are not
+guaranteed held out from encoder pretraining. A favorable result warrants a
+controlled intervention and physical evaluation; it is not a new method result.
+Local validation covers NumPy readouts and alignment guards. Native GPU extraction
+requires the cluster dependencies and is not locally verified.
