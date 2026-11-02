@@ -40,6 +40,27 @@ def pack_history_actions(prefix, bank):
                            bank.reshape(len(bank), 1, 10)), axis=1)
 
 
+class ResetReferences:
+    """Pin realized resets, rather than assuming reset is an identity setter."""
+    def __init__(self):
+        self.references = {}
+
+    def check(self, initial, goal, seed, actual, frame):
+        actual = np.asarray(actual, dtype=float)
+        if actual.shape != (10,) or not np.isfinite(actual).all():
+            raise ValueError('Invalid realized simulator state')
+        key = (int(seed), tuple(np.asarray(initial, dtype=float)), tuple(np.asarray(goal, dtype=float)))
+        if key not in self.references:
+            self.references[key] = (actual.copy(), frame.copy())
+            return True
+        reference, reference_frame = self.references[key]
+        np.testing.assert_allclose(actual, reference, atol=1e-5, rtol=0,
+                                   err_msg='Repeated reset changed realized physical state')
+        np.testing.assert_array_equal(frame, reference_frame,
+                                      err_msg='Repeated reset changed rendered image')
+        return False
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--out', type=Path, required=True)
@@ -104,12 +125,13 @@ def main():
     report = {'protocol': {**vars(args), 'out': str(args.out),
         'checkpoint_sha256': digest.hexdigest(), 'horizon': 5, 'history': 3, 'frameskip': 5,
         'score': 'Squared projected-latent distance to identical rendered final goal',
-        'restore': 'Same reset seed and seven-state initialization, full actual prefix replay',
+        'restore': 'Pin realized post-reset state/image for each request; verify repeated resets and full prefix replay',
         'goal_tolerance': 'Diagnostic only: object xy <=10 pixels AND wrapped angle <=0.1 rad',
         'limitations': ['Not original CEM evaluation; restricted recorded candidate bank',
             'New unfiltered queries, not identified prior failed episodes',
             'Queries from existing training dataset; not a held-out generalization claim',
             'Seven-state initial reset may omit original block velocities; goal reachability not guaranteed',
+            'Simulator reset may advance physics; actual post-reset state is recorded, not assumed equal to dataset row',
             'Both arms use rendered simulator history, no fabricated repeated context frames',
             'Oracle is simulator-assisted diagnostic, not deployable policy',
             'Failure of both arms cannot distinguish candidate coverage from scoring/horizon failure']}, 'queries': []}
@@ -118,14 +140,19 @@ def main():
         return np.array([*env.agent.position, *env.block.position, env.block.angle,
                          *env.agent.velocity, *env.block.velocity, env.block.angular_velocity], float)
 
+    reset_references = ResetReferences()
+
     def restore(initial, goal, prefix, seed):
         env.reset(seed=seed, options={'state': initial.copy()})
         if not hasattr(env, '_set_goal_state'):
             raise ValueError('Installed PushT lacks native goal setter')
         env._set_goal_state(goal.copy())
-        np.testing.assert_allclose(snapshot()[:7], initial, atol=1e-4, rtol=0)
         frames = [np.asarray(env.render()).copy()]
         trace = [snapshot()]
+        first = reset_references.check(initial, goal, seed, trace[0], frames[0])
+        if first:
+            print('RESET_REALIZED', json.dumps({'seed': seed, 'requested': initial.tolist(),
+                  'actual': trace[0].tolist(), 'delta_first_seven': (trace[0][:7]-initial).tolist()}), flush=True)
         for action in prefix:
             env.step(np.asarray(action).copy())
             frames.append(np.asarray(env.render()).copy()); trace.append(snapshot())
@@ -158,11 +185,15 @@ def main():
                     if len(bank) != args.candidates:
                         raise ValueError('Could not form candidate bank')
                     banks.append(np.asarray(bank)); sources.append(source)
-                goal_frames, _ = restore(goal, goal, [], seed)
+                goal_frames, goal_trace = restore(goal, goal, [], seed)
+                goal_xy, goal_angle = goal_error(goal_trace[0], goal)
+                if goal_xy > 1e-4 or goal_angle > 1e-4:
+                    raise ValueError('Rendered goal object pose differs from requested goal; inspect reset source')
                 goal_emb = encode(goal_frames)[0]
                 prefix0 = np.clip(actions[row:row+10], env.action_space.low, env.action_space.high).copy()
                 record = {'row': int(row), 'episode': int(episodes[row]), 'candidate_source_rows': sources,
-                          'initial': initial.tolist(), 'goal': goal.tolist(), 'arms': {}}
+                          'initial': initial.tolist(), 'goal': goal.tolist(),
+                          'rendered_goal_state': goal_trace[0].tolist(), 'arms': {}}
                 for arm in ('learned', 'oracle'):
                     prefix = list(prefix0.copy())
                     frames, trace = restore(initial, goal, prefix, seed)
@@ -211,6 +242,8 @@ def main():
                             'oracle_scoring_regret_of_learned': float(oracle_cost[choose(learned_cost)] - oracle_cost.min()),
                             'xy_error': xy, 'angle_error': angle})
                     record['arms'][arm] = {'diagnostic_success': bool(success),
+                        'realized_reset_state': trace[0].tolist(),
+                        'state_after_warmup': trace[10].tolist(),
                         'initial_success': bool(initial_success), 'executed_actions': len(prefix)-10,
                         'final_xy_error': xy, 'final_angle_error': angle, 'decisions': decisions}
                     print('ORACLE_CLOSED_LOOP', qi, arm, success, xy, angle, flush=True)

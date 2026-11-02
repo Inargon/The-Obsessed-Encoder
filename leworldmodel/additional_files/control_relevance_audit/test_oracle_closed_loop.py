@@ -1,9 +1,27 @@
 import unittest
 import numpy as np
-from oracle_closed_loop import choose, goal_error, history_indices, pack_history_actions
+from oracle_closed_loop import choose, goal_error, history_indices, pack_history_actions, ResetReferences
 
 
 class OracleTests(unittest.TestCase):
+    def test_reset_drift_is_recorded_but_repeated_drift_rejected(self):
+        initial = np.array([134.72987, 208.8176, 245.6072, 247.94635, .6782066, 74.208115, -125.19928])
+        actual = np.r_[initial, 0., 0., 0.]
+        actual[:2] += .01 * initial[5:7]
+        frame = np.zeros((4, 4, 3), dtype=np.uint8)
+        refs = ResetReferences()
+        self.assertTrue(refs.check(initial, initial, 1701, actual, frame))
+        self.assertFalse(refs.check(initial, initial, 1701, actual.copy(), frame.copy()))
+        for coordinate in (0, 5, 7, 9):
+            changed = actual.copy()
+            changed[coordinate] += .001
+            with self.assertRaises(AssertionError):
+                refs.check(initial, initial, 1701, changed, frame)
+        changed_frame = frame.copy()
+        changed_frame[0, 0, 0] = 1
+        with self.assertRaises(AssertionError):
+            refs.check(initial, initial, 1701, actual, changed_frame)
+
     def test_history_alignment_after_replanning(self):
         for length in (11, 16, 21):
             prefix = np.arange((length-1)*2).reshape(-1, 2)
