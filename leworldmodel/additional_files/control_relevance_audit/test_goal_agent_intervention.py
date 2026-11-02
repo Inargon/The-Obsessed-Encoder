@@ -10,17 +10,26 @@ class GoalAgentTests(unittest.TestCase):
             def __init__(self):
                 self.agent = SimpleNamespace(position=(100., 100.))
                 self.fail = False
+                self.cached_position = self.agent.position
+                self.space = SimpleNamespace(reindex_shapes_for_body=self.reindex)
+            def reindex(self, body):
+                self.cached_position = tuple(body.position)
             def render(self):
                 if self.fail and self.agent.position[0] > 100:
                     raise RuntimeError('render failed')
                 frame = np.zeros((160, 160, 3), dtype=np.uint8)
-                x, y = map(int, self.agent.position)
+                x, y = map(int, self.cached_position)
                 frame[y, x] = 255
                 return frame
         env = Env()
         def snapshot():
             return np.array([*env.agent.position, 200, 200, .5, 1, 2, 3, 4, 5])
         before = snapshot()
+        # Reproduce the real failure: body state changes, rendered geometry does not.
+        original = env.render().copy()
+        env.agent.position = (68., 100.)
+        np.testing.assert_array_equal(env.render(), original)
+        env.agent.position = (100., 100.)
         images, records = render_goal_variants(env, snapshot)
         self.assertEqual(len(images), 5)
         self.assertEqual(records[0]['changed_pixels'], 0)
@@ -30,6 +39,35 @@ class GoalAgentTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             render_goal_variants(env, snapshot)
         np.testing.assert_array_equal(snapshot(), before)
+
+    def test_real_pymunk_debug_draw_reindex(self):
+        try:
+            import pymunk
+        except ImportError:
+            self.skipTest('Pymunk absent locally; this test runs in cluster environment')
+        class Recorder(pymunk.SpaceDebugDrawOptions):
+            def __init__(self):
+                super().__init__()
+                self.positions = []
+                self.flags = self.DRAW_SHAPES
+            def draw_circle(self, pos, angle, radius, outline_color, fill_color):
+                self.positions.append(tuple(pos))
+        space = pymunk.Space()
+        body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
+        body.position = (100., 100.)
+        shape = pymunk.Circle(body, 10)
+        space.add(body, shape)
+        space.reindex_shapes_for_body(body)
+        original = Recorder(); space.debug_draw(original)
+        self.assertEqual(original.positions, [(100., 100.)])
+        body.position = (68., 100.)
+        space.reindex_shapes_for_body(body)
+        moved = Recorder(); space.debug_draw(moved)
+        self.assertEqual(moved.positions, [(68., 100.)])
+        body.position = (100., 100.)
+        space.reindex_shapes_for_body(body)
+        restored = Recorder(); space.debug_draw(restored)
+        self.assertEqual(restored.positions, original.positions)
 
     def test_rank_flips_excludes_numeric_ties(self):
         costs = [[1,2], [2,1], [1+1e-8,1], [1,2], [1,2]]

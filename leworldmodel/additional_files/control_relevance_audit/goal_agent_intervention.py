@@ -15,6 +15,9 @@ def render_goal_variants(env, snapshot):
             if not np.all((position >= 16) & (position <= 496)):
                 raise ValueError('Goal-agent intervention leaves interior workspace')
             env.agent.position = tuple(position)
+            # debug_draw consumes cached shape geometry; moving a body alone
+            # does not refresh it until a step or explicit reindex. No step here.
+            env.space.reindex_shapes_for_body(env.agent)
             after = snapshot()
             np.testing.assert_allclose(after[:2], position, atol=1e-8, rtol=0)
             np.testing.assert_array_equal(after[2:], before[2:])
@@ -27,6 +30,7 @@ def render_goal_variants(env, snapshot):
             records.append({'label': label, 'agent_xy': position.tolist(), 'changed_pixels': changed})
     finally:
         env.agent.position = tuple(before[:2])
+        env.space.reindex_shapes_for_body(env.agent)
         np.testing.assert_array_equal(snapshot(), before)
         np.testing.assert_array_equal(np.asarray(env.render()), original)
     return images, records
