@@ -1,0 +1,226 @@
+"""Small fixed-bank closed-loop audit: learned vs simulated endpoints, same score.
+
+Not a reproduction of CEM or published success rates. Simulator branches are
+restored by reset and full prefix replay, never by incomplete position snapshots.
+"""
+import argparse
+import hashlib
+import inspect
+import json
+import os
+from pathlib import Path
+import sys
+import numpy as np
+
+
+def choose(costs):
+    costs = np.asarray(costs)
+    if costs.ndim != 1 or len(costs) < 2 or not np.isfinite(costs).all():
+        raise ValueError('Invalid candidate scores')
+    return int(costs.argmin())
+
+
+def goal_error(state, goal):
+    d = np.asarray(state)[2:5] - np.asarray(goal)[2:5]
+    return float(np.linalg.norm(d[:2])), float(abs(np.arctan2(np.sin(d[2]), np.cos(d[2]))))
+
+
+def history_indices(length):
+    if length < 11:
+        raise ValueError('Need ten actual executed actions for native history')
+    return [length - 11, length - 6, length - 1]
+
+
+def pack_history_actions(prefix, bank):
+    prefix, bank = np.asarray(prefix), np.asarray(bank)
+    if prefix.ndim != 2 or prefix.shape[1] != 2 or len(prefix) < 10 or bank.ndim != 3 or bank.shape[1:] != (5, 2):
+        raise ValueError('Need real ten-action history and five-action candidates')
+    past = prefix[-10:].reshape(2, 10)
+    return np.concatenate((np.broadcast_to(past, (len(bank), 2, 10)),
+                           bank.reshape(len(bank), 1, 10)), axis=1)
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--out', type=Path, required=True)
+    p.add_argument('--queries', type=int, default=2)
+    p.add_argument('--budget', type=int, default=25)
+    p.add_argument('--candidates', type=int, default=8)
+    p.add_argument('--goal-offset', type=int, default=100)
+    p.add_argument('--seed', type=int, default=1701)
+    p.add_argument('--run', default='pusht_clean_jepa_matched_full_seed0')
+    args = p.parse_args()
+    if args.out.exists() or args.queries < 1 or args.candidates < 2 or args.budget < 5 or args.budget % 5 or args.goal_offset < 15:
+        p.error('New output, valid counts, budget multiple of five required')
+    os.environ.setdefault('SDL_VIDEODRIVER', 'dummy')
+    os.environ.setdefault('SDL_AUDIODRIVER', 'dummy')
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    import torch
+    import stable_worldmodel as swm
+    from stable_worldmodel.envs.pusht.env import PushT
+    from additional_files.evaluate_reacher_checkpoint import load_inference_model
+    from additional_files.mechanism_metrics import normalize_action_blocks
+    from utils import get_column_normalizer, get_img_preprocessor
+
+    args.out.mkdir(parents=True, exist_ok=False)
+    (args.out / 'installed_pusht.txt').write_text(inspect.getsource(inspect.getmodule(PushT)))
+    home = Path(os.environ['STABLEWM_HOME'])
+    dataset = swm.data.load_dataset(str(home / 'datasets/pusht_expert_train.h5'),
+        cache_dir=os.environ['LOCAL_DATASET_DIR'], num_steps=4, frameskip=5,
+        keys_to_load=['state', 'action'], keys_to_cache=['state', 'action'])
+    states = np.asarray(dataset.get_col_data('state'))
+    actions = np.asarray(dataset.get_col_data('action'))
+    episodes = np.asarray(dataset.get_col_data('episode_idx')).reshape(-1)
+    if states.shape[1:] != (7,) or actions.shape[1:] != (2,):
+        raise ValueError('Unexpected native raw schema')
+    norm = get_column_normalizer(dataset, 'action', 'action')
+    preprocess = get_img_preprocessor('pixels', 'pixels', img_size=224)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    torch.manual_seed(args.seed)
+    model = load_inference_model(args.run, 'weights_epoch_10.pt').to(device).eval().requires_grad_(False)
+    env = PushT(resolution=224, with_target=True, relative=True)
+    rng = np.random.default_rng(args.seed)
+    # Fixed query selection before any model/oracle outcome. Unique episodes.
+    rows, used = [], set()
+    for clip in rng.permutation(len(dataset)):
+        ep, start = map(int, dataset.clip_indices[int(clip)])
+        row = int(dataset.offsets[ep]) + start
+        if ep in used or start + args.goal_offset >= int(dataset.lengths[ep]):
+            continue
+        if not np.isfinite(states[row:row+args.goal_offset+1]).all() or not np.isfinite(actions[row:row+10]).all():
+            continue
+        rows.append(row); used.add(ep)
+        if len(rows) == args.queries:
+            break
+    if len(rows) != args.queries:
+        raise ValueError('Insufficient query episodes')
+    query_episodes = set(episodes[rows].tolist())
+    bank_rows = np.flatnonzero(~np.isin(episodes, list(query_episodes)))
+    checkpoint = home / 'checkpoints' / args.run / 'weights_epoch_10.pt'
+    digest = hashlib.sha256()
+    with checkpoint.open('rb') as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b''):
+            digest.update(chunk)
+    report = {'protocol': {**vars(args), 'out': str(args.out),
+        'checkpoint_sha256': digest.hexdigest(), 'horizon': 5, 'history': 3, 'frameskip': 5,
+        'score': 'Squared projected-latent distance to identical rendered final goal',
+        'restore': 'Same reset seed and seven-state initialization, full actual prefix replay',
+        'goal_tolerance': 'Diagnostic only: object xy <=10 pixels AND wrapped angle <=0.1 rad',
+        'limitations': ['Not original CEM evaluation; restricted recorded candidate bank',
+            'New unfiltered queries, not identified prior failed episodes',
+            'Queries from existing training dataset; not a held-out generalization claim',
+            'Seven-state initial reset may omit original block velocities; goal reachability not guaranteed',
+            'Both arms use rendered simulator history, no fabricated repeated context frames',
+            'Oracle is simulator-assisted diagnostic, not deployable policy',
+            'Failure of both arms cannot distinguish candidate coverage from scoring/horizon failure']}, 'queries': []}
+
+    def snapshot():
+        return np.array([*env.agent.position, *env.block.position, env.block.angle,
+                         *env.agent.velocity, *env.block.velocity, env.block.angular_velocity], float)
+
+    def restore(initial, goal, prefix, seed):
+        env.reset(seed=seed, options={'state': initial.copy()})
+        if not hasattr(env, '_set_goal_state'):
+            raise ValueError('Installed PushT lacks native goal setter')
+        env._set_goal_state(goal.copy())
+        np.testing.assert_allclose(snapshot()[:7], initial, atol=1e-4, rtol=0)
+        frames = [np.asarray(env.render()).copy()]
+        trace = [snapshot()]
+        for action in prefix:
+            env.step(np.asarray(action).copy())
+            frames.append(np.asarray(env.render()).copy()); trace.append(snapshot())
+        return frames, np.asarray(trace)
+
+    def encode(images):
+        batch = torch.from_numpy(np.stack(images).copy()).permute(0, 3, 1, 2)
+        batch = preprocess({'pixels': batch})['pixels'].to(device)
+        return model.encode({'pixels': batch.unsqueeze(0)})['emb'][0]
+
+    try:
+        with torch.inference_mode():
+            for qi, row in enumerate(rows):
+                initial, goal = states[row].copy(), states[row+args.goal_offset].copy()
+                seed = args.seed + qi
+                # Same candidate sequences for both arms at each decision index.
+                banks, sources = [], []
+                for _ in range(args.budget // 5):
+                    bank, source = [np.zeros((5, 2), dtype=np.float32)], [-1]
+                    for _attempt in range(100000):
+                        r = int(rng.choice(bank_rows))
+                        if r + 5 > len(actions) or not np.all(episodes[r:r+5] == episodes[r]):
+                            continue
+                        a = actions[r:r+5].copy()
+                        if not np.isfinite(a).all():
+                            continue
+                        bank.append(np.clip(a, env.action_space.low, env.action_space.high)); source.append(r)
+                        if len(bank) == args.candidates:
+                            break
+                    if len(bank) != args.candidates:
+                        raise ValueError('Could not form candidate bank')
+                    banks.append(np.asarray(bank)); sources.append(source)
+                goal_frames, _ = restore(goal, goal, [], seed)
+                goal_emb = encode(goal_frames)[0]
+                prefix0 = np.clip(actions[row:row+10], env.action_space.low, env.action_space.high).copy()
+                record = {'row': int(row), 'episode': int(episodes[row]), 'candidate_source_rows': sources,
+                          'initial': initial.tolist(), 'goal': goal.tolist(), 'arms': {}}
+                for arm in ('learned', 'oracle'):
+                    prefix = list(prefix0.copy())
+                    frames, trace = restore(initial, goal, prefix, seed)
+                    xy, angle = goal_error(trace[-1], goal)
+                    initial_success = xy <= 10 and angle <= .1
+                    success, decisions = initial_success, []
+                    for turn, bank in enumerate(banks):
+                        if success:
+                            break
+                        current = trace[-1].copy()
+                        hist = encode([frames[i] for i in history_indices(len(frames))])
+                        # Each token's action is the five native actions FOLLOWING its frame.
+                        packed = pack_history_actions(prefix, bank)
+                        normalized = normalize_action_blocks(torch.from_numpy(packed).float(), norm, 2).to(device)
+                        predicted = model.predict(hist.unsqueeze(0).expand(len(bank), -1, -1),
+                                                  model.action_encoder(normalized))[:, -1]
+                        learned_cost = (predicted - goal_emb).square().sum(-1).cpu().numpy()
+                        real_images, branch_traces = [], []
+                        for candidate in bank:
+                            replay_frames, replay_trace = restore(initial, goal, prefix, seed)
+                            np.testing.assert_allclose(replay_trace, trace, atol=1e-5, rtol=0,
+                                err_msg='Prefix replay is not deterministic')
+                            np.testing.assert_array_equal(replay_frames[-1], frames[-1])
+                            branch = []
+                            for action in candidate:
+                                env.step(action.copy()); branch.append(snapshot())
+                            branch_traces.append(np.asarray(branch))
+                            real_images.append(np.asarray(env.render()).copy())
+                        oracle_cost = (encode(real_images) - goal_emb).square().sum(-1).cpu().numpy()
+                        chosen = choose(learned_cost if arm == 'learned' else oracle_cost)
+                        _, check_trace = restore(initial, goal, prefix, seed)
+                        np.testing.assert_allclose(check_trace[-1], current, atol=1e-5, rtol=0)
+                        executed = []
+                        for action in bank[chosen]:
+                            env.step(action.copy()); prefix.append(action.copy())
+                            frames.append(np.asarray(env.render()).copy())
+                            executed.append(snapshot())
+                            xy, angle = goal_error(executed[-1], goal)
+                            if xy <= 10 and angle <= .1:
+                                success = True
+                                break
+                        np.testing.assert_allclose(executed, branch_traces[chosen][:len(executed)], atol=1e-5, rtol=0)
+                        trace = np.concatenate((trace, executed))
+                        decisions.append({'turn': turn, 'selected': chosen,
+                            'learned_cost': learned_cost.tolist(), 'oracle_cost': oracle_cost.tolist(),
+                            'oracle_scoring_regret_of_learned': float(oracle_cost[choose(learned_cost)] - oracle_cost.min()),
+                            'xy_error': xy, 'angle_error': angle})
+                    record['arms'][arm] = {'diagnostic_success': bool(success),
+                        'initial_success': bool(initial_success), 'executed_actions': len(prefix)-10,
+                        'final_xy_error': xy, 'final_angle_error': angle, 'decisions': decisions}
+                    print('ORACLE_CLOSED_LOOP', qi, arm, success, xy, angle, flush=True)
+                report['queries'].append(record)
+                (args.out / 'progress.json').write_text(json.dumps(report, indent=2, allow_nan=False))
+    finally:
+        env.close()
+    (args.out / 'report.json').write_text(json.dumps(report, indent=2, allow_nan=False))
+    print('ORACLE_CLOSED_LOOP_COMPLETE', args.out / 'report.json', flush=True)
+
+
+if __name__ == '__main__':
+    main()
