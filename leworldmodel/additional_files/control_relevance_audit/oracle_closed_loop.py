@@ -90,6 +90,8 @@ class ResetReferences:
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--out', type=Path, required=True)
+    p.add_argument('--goal-agent-audit', action='store_true')
+    p.add_argument('--reference-report', type=Path)
     p.add_argument('--queries', type=int, default=2)
     p.add_argument('--budget', type=int, default=25)
     p.add_argument('--candidates', type=int, default=8)
@@ -97,6 +99,7 @@ def main():
     p.add_argument('--seed', type=int, default=1701)
     p.add_argument('--run', default='pusht_clean_jepa_matched_full_seed0')
     args = p.parse_args()
+    reference = json.loads(args.reference_report.read_text()) if args.reference_report else None
     if args.out.exists() or args.queries < 1 or args.candidates < 2 or args.budget < 5 or args.budget % 5 or args.goal_offset < 15:
         p.error('New output, valid counts, budget multiple of five required')
     os.environ.setdefault('SDL_VIDEODRIVER', 'dummy')
@@ -148,7 +151,7 @@ def main():
     with checkpoint.open('rb') as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b''):
             digest.update(chunk)
-    report = {'protocol': {**vars(args), 'out': str(args.out),
+    report = {'protocol': {**vars(args), 'out': str(args.out), 'reference_report': str(args.reference_report) if args.reference_report else None,
         'checkpoint_sha256': digest.hexdigest(), 'horizon': 5, 'history': 3, 'frameskip': 5,
         'score': 'Squared projected-latent distance to identical rendered final goal',
         'restore': 'Pin realized post-reset state/image for each request; verify repeated resets and full prefix replay',
@@ -217,10 +220,22 @@ def main():
                 if goal_xy > 1e-4 or goal_angle > 1e-4:
                     raise ValueError('Rendered goal object pose differs from requested goal; inspect reset source')
                 goal_emb = encode(goal_frames)[0]
+                goal_variant_embs, goal_variant_records = None, None
+                if args.goal_agent_audit:
+                    from additional_files.control_relevance_audit.goal_agent_intervention import render_goal_variants, rank_variants
+                    from PIL import Image
+                    goal_images, goal_variant_records = render_goal_variants(env, snapshot)
+                    # Encode each target with exactly the baseline batch shape.
+                    goal_variant_embs = torch.stack([encode([im])[0] for im in goal_images])
+                    torch.testing.assert_close(goal_variant_embs[0], goal_emb, atol=1e-6, rtol=1e-6)
+                    for vi, im in enumerate(goal_images):
+                        Image.fromarray(im).save(args.out / f'query{qi}-goal-{vi}.png')
+                    print('GOAL_AGENT_RENDER', qi, json.dumps(goal_variant_records), flush=True)
                 prefix0 = np.clip(actions[row:row+10], env.action_space.low, env.action_space.high).copy()
                 record = {'row': int(row), 'episode': int(episodes[row]), 'candidate_source_rows': sources,
                           'initial': initial.tolist(), 'goal': goal.tolist(),
-                          'rendered_goal_state': goal_trace[0].tolist(), 'arms': {}}
+                          'rendered_goal_state': goal_trace[0].tolist(),
+                          'goal_agent_variants': goal_variant_records, 'arms': {}}
                 for arm in ('learned', 'oracle'):
                     prefix = list(prefix0.copy())
                     frames, trace = restore(initial, goal, prefix, seed)
@@ -249,8 +264,22 @@ def main():
                                 env.step(action.copy()); branch.append(snapshot())
                             branch_traces.append(np.asarray(branch))
                             real_images.append(np.asarray(env.render()).copy())
-                        oracle_cost = (encode(real_images) - goal_emb).square().sum(-1).cpu().numpy()
+                        real_emb = encode(real_images)
+                        oracle_cost = (real_emb - goal_emb).square().sum(-1).cpu().numpy()
                         diagnostic = candidate_diagnostics(current, branch_traces, goal, learned_cost, oracle_cost)
+                        intervention = None
+                        if goal_variant_embs is not None:
+                            intervention = {}
+                            for scorer, candidate_emb in (('learned', predicted), ('oracle', real_emb)):
+                                matrix = (candidate_emb[None] - goal_variant_embs[:, None]).square().sum(-1).cpu().numpy()
+                                np.testing.assert_allclose(matrix[0], learned_cost if scorer == 'learned' else oracle_cost, atol=1e-4, rtol=1e-5)
+                                intervention[scorer] = rank_variants(matrix, diagnostic['endpoint_errors'])
+                                result = intervention[scorer]
+                                print('GOAL_AGENT_RANK', qi, arm, turn, scorer, json.dumps({k: result[k] for k in
+                                    ('selected', 'robust_flips', 'selected_physical_errors', 'advantage_over_original_choice')}), flush=True)
+                            if turn == 0:
+                                for ci, im in enumerate(real_images):
+                                    Image.fromarray(im).save(args.out / f'query{qi}-{arm}-candidate{ci}.png')
                         chosen = choose(learned_cost if arm == 'learned' else oracle_cost)
                         _, check_trace = restore(initial, goal, prefix, seed)
                         np.testing.assert_allclose(check_trace[-1], current, atol=1e-5, rtol=0)
@@ -272,7 +301,7 @@ def main():
                             'current_state': current.tolist(),
                             'candidate_actions': bank.tolist(),
                             'candidate_state_traces': np.asarray(branch_traces).tolist(),
-                            'physical_diagnostic': diagnostic})
+                            'physical_diagnostic': diagnostic, 'goal_agent_intervention': intervention})
                     record['arms'][arm] = {'diagnostic_success': bool(success),
                         'realized_reset_state': trace[0].tolist(),
                         'state_after_warmup': trace[10].tolist(),
@@ -290,6 +319,17 @@ def main():
                 (args.out / 'progress.json').write_text(json.dumps(report, indent=2, allow_nan=False))
     finally:
         env.close()
+    if reference is not None:
+        from additional_files.control_relevance_audit.goal_agent_intervention import verify_baseline
+        verify_baseline(report, reference)
+        print('BASELINE_REPLAY_MATCHED', args.reference_report, flush=True)
+    if args.goal_agent_audit:
+        report['protocol']['goal_agent_intervention'] = {
+            'offsets_px': [[0,0],[-32,0],[32,0],[0,-32],[0,32]],
+            'selection': 'All executed actions use original goal; variants are scoring-only',
+            'limitations': ['Image interventions need not be dynamically reachable goal states',
+                'Agent motion can change object occlusion; inspect saved target renders',
+                'Ranking sensitivity does not establish long-term control inferiority or novelty']}
     (args.out / 'report.json').write_text(json.dumps(report, indent=2, allow_nan=False))
     print('ORACLE_CLOSED_LOOP_COMPLETE', args.out / 'report.json', flush=True)
 
