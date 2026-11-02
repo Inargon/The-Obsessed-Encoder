@@ -1,9 +1,28 @@
 import unittest
 import numpy as np
-from oracle_closed_loop import choose, goal_error, history_indices, pack_history_actions, ResetReferences
+from oracle_closed_loop import choose, goal_error, history_indices, pack_history_actions, ResetReferences, candidate_diagnostics
 
 
 class OracleTests(unittest.TestCase):
+    def test_candidate_tradeoff_and_dominance(self):
+        goal = np.zeros(10)
+        current = np.zeros(10); current[2] = 30; current[4] = .5
+        branches = np.zeros((3, 2, 10))
+        branches[:, :, 2] = np.array([20, 15, 25])[:, None]
+        branches[:, :, 4] = np.array([.4, .3, .1])[:, None]
+        result = candidate_diagnostics(current, branches, goal, [0, 1, 2], [2, 0, 1])
+        self.assertEqual(result['improving_candidates'], [0, 1, 2])
+        self.assertEqual(result['selections']['learned']['dominating_candidates'], [1])
+        self.assertEqual(result['selections']['oracle']['dominating_candidates'], [])
+        self.assertFalse(result['any_branch_reaches_threshold'])
+        # An intermediate success must not be missed when the endpoint moves away.
+        branches[0, 0, 2:5] = 0
+        result = candidate_diagnostics(current, branches, goal, [0, 1, 2], [2, 0, 1])
+        self.assertTrue(result['any_branch_reaches_threshold'])
+        branches[0, 0, 2] = np.nan
+        with self.assertRaises(ValueError):
+            candidate_diagnostics(current, branches, goal, [0, 1, 2], [2, 0, 1])
+
     def test_reset_drift_is_recorded_but_repeated_drift_rejected(self):
         initial = np.array([134.72987, 208.8176, 245.6072, 247.94635, .6782066, 74.208115, -125.19928])
         actual = np.r_[initial, 0., 0., 0.]

@@ -25,6 +25,32 @@ def goal_error(state, goal):
     return float(np.linalg.norm(d[:2])), float(abs(np.arctan2(np.sin(d[2]), np.cos(d[2]))))
 
 
+def candidate_diagnostics(current, branches, goal, learned_cost, oracle_cost):
+    """Physical short-horizon diagnostics only; never used for action selection."""
+    branches = np.asarray(branches, dtype=float)
+    if branches.ndim != 3 or branches.shape[2] != 10 or not np.isfinite(branches).all():
+        raise ValueError('Expected finite candidate x horizon x full-state traces')
+    before = np.asarray(goal_error(current, goal))
+    errors = np.asarray([goal_error(branch[-1], goal) for branch in branches])
+    tolerance = np.array([1e-5, 1e-7])
+    def dominates(a, b):
+        return np.all(a <= b + tolerance, axis=-1) & np.any(a < b - tolerance, axis=-1)
+    selections = {}
+    for name, costs in (('learned', learned_cost), ('oracle', oracle_cost)):
+        if len(costs) != len(branches):
+            raise ValueError('Candidate score count mismatch')
+        selected = choose(costs)
+        selections[name] = {'selected': selected,
+            'dominating_candidates': np.flatnonzero(dominates(errors, errors[selected])).tolist(),
+            'improves_both_over_current': bool(dominates(errors[selected], before))}
+    return {'current_error': before.tolist(), 'endpoint_errors': errors.tolist(),
+        'improving_candidates': np.flatnonzero(dominates(errors, before)).tolist(),
+        'any_branch_reaches_threshold': any(
+            xy <= 10 and angle <= .1 for branch in branches
+            for xy, angle in (goal_error(state, goal) for state in branch)),
+        'selections': selections}
+
+
 def history_indices(length):
     if length < 11:
         raise ValueError('Need ten actual executed actions for native history')
@@ -134,7 +160,8 @@ def main():
             'Simulator reset may advance physics; actual post-reset state is recorded, not assumed equal to dataset row',
             'Both arms use rendered simulator history, no fabricated repeated context frames',
             'Oracle is simulator-assisted diagnostic, not deployable policy',
-            'Failure of both arms cannot distinguish candidate coverage from scoring/horizon failure']}, 'queries': []}
+            'Physical candidate diagnostics measure short-horizon progress only; temporary retreat may be necessary',
+            'Pareto dominance uses xy and wrapped-angle errors separately, no fitted physical cost weights']}, 'queries': []}
 
     def snapshot():
         return np.array([*env.agent.position, *env.block.position, env.block.angle,
@@ -223,6 +250,7 @@ def main():
                             branch_traces.append(np.asarray(branch))
                             real_images.append(np.asarray(env.render()).copy())
                         oracle_cost = (encode(real_images) - goal_emb).square().sum(-1).cpu().numpy()
+                        diagnostic = candidate_diagnostics(current, branch_traces, goal, learned_cost, oracle_cost)
                         chosen = choose(learned_cost if arm == 'learned' else oracle_cost)
                         _, check_trace = restore(initial, goal, prefix, seed)
                         np.testing.assert_allclose(check_trace[-1], current, atol=1e-5, rtol=0)
@@ -240,13 +268,24 @@ def main():
                         decisions.append({'turn': turn, 'selected': chosen,
                             'learned_cost': learned_cost.tolist(), 'oracle_cost': oracle_cost.tolist(),
                             'oracle_scoring_regret_of_learned': float(oracle_cost[choose(learned_cost)] - oracle_cost.min()),
-                            'xy_error': xy, 'angle_error': angle})
+                            'xy_error': xy, 'angle_error': angle,
+                            'current_state': current.tolist(),
+                            'candidate_actions': bank.tolist(),
+                            'candidate_state_traces': np.asarray(branch_traces).tolist(),
+                            'physical_diagnostic': diagnostic})
                     record['arms'][arm] = {'diagnostic_success': bool(success),
                         'realized_reset_state': trace[0].tolist(),
                         'state_after_warmup': trace[10].tolist(),
                         'initial_success': bool(initial_success), 'executed_actions': len(prefix)-10,
                         'final_xy_error': xy, 'final_angle_error': angle, 'decisions': decisions}
                     print('ORACLE_CLOSED_LOOP', qi, arm, success, xy, angle, flush=True)
+                    print('CANDIDATE_DIAGNOSTIC', qi, arm, json.dumps({
+                        'decisions': len(decisions),
+                        'turns_with_improving_candidate': sum(bool(d['physical_diagnostic']['improving_candidates']) for d in decisions),
+                        'learned_selection_dominated': sum(bool(d['physical_diagnostic']['selections']['learned']['dominating_candidates']) for d in decisions),
+                        'oracle_selection_dominated': sum(bool(d['physical_diagnostic']['selections']['oracle']['dominating_candidates']) for d in decisions),
+                        'turns_with_branch_success': sum(d['physical_diagnostic']['any_branch_reaches_threshold'] for d in decisions)
+                    }), flush=True)
                 report['queries'].append(record)
                 (args.out / 'progress.json').write_text(json.dumps(report, indent=2, allow_nan=False))
     finally:
