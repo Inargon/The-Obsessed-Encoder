@@ -91,6 +91,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--goal-agent-audit', action='store_true')
+    p.add_argument('--goal-set-policy', action='store_true')
     p.add_argument('--reference-report', type=Path)
     p.add_argument('--queries', type=int, default=2)
     p.add_argument('--budget', type=int, default=25)
@@ -99,6 +100,8 @@ def main():
     p.add_argument('--seed', type=int, default=1701)
     p.add_argument('--run', default='pusht_clean_jepa_matched_full_seed0')
     args = p.parse_args()
+    if args.goal_set_policy and not args.goal_agent_audit:
+        p.error("Goal-set policy requires --goal-agent-audit")
     reference = json.loads(args.reference_report.read_text()) if args.reference_report else None
     if args.out.exists() or args.queries < 1 or args.candidates < 2 or args.budget < 5 or args.budget % 5 or args.goal_offset < 15:
         p.error('New output, valid counts, budget multiple of five required')
@@ -222,7 +225,7 @@ def main():
                 goal_emb = encode(goal_frames)[0]
                 goal_variant_embs, goal_variant_records = None, None
                 if args.goal_agent_audit:
-                    from additional_files.control_relevance_audit.goal_agent_intervention import render_goal_variants, rank_variants
+                    from additional_files.control_relevance_audit.goal_agent_intervention import render_goal_variants, rank_variants, goal_set_cost
                     from PIL import Image
                     goal_images, goal_variant_records = render_goal_variants(env, snapshot)
                     # Encode each target with exactly the baseline batch shape.
@@ -236,7 +239,7 @@ def main():
                           'initial': initial.tolist(), 'goal': goal.tolist(),
                           'rendered_goal_state': goal_trace[0].tolist(),
                           'goal_agent_variants': goal_variant_records, 'arms': {}}
-                for arm in ('learned', 'oracle'):
+                for arm in (('learned', 'oracle', 'goal_set') if args.goal_set_policy else ('learned', 'oracle')):
                     prefix = list(prefix0.copy())
                     frames, trace = restore(initial, goal, prefix, seed)
                     xy, angle = goal_error(trace[-1], goal)
@@ -280,7 +283,11 @@ def main():
                             if turn == 0:
                                 for ci, im in enumerate(real_images):
                                     Image.fromarray(im).save(args.out / f'query{qi}-{arm}-candidate{ci}.png')
-                        chosen = choose(learned_cost if arm == 'learned' else oracle_cost)
+                        set_scores, matched_goals = None, None
+                        if args.goal_set_policy:
+                            set_scores, matched_goals = goal_set_cost(intervention['learned']['costs'])
+                        chosen = choose(set_scores if arm == 'goal_set' else
+                                        learned_cost if arm == 'learned' else oracle_cost)
                         _, check_trace = restore(initial, goal, prefix, seed)
                         np.testing.assert_allclose(check_trace[-1], current, atol=1e-5, rtol=0)
                         executed = []
@@ -301,7 +308,9 @@ def main():
                             'current_state': current.tolist(),
                             'candidate_actions': bank.tolist(),
                             'candidate_state_traces': np.asarray(branch_traces).tolist(),
-                            'physical_diagnostic': diagnostic, 'goal_agent_intervention': intervention})
+                            'physical_diagnostic': diagnostic, 'goal_agent_intervention': intervention,
+                            'goal_set_cost': set_scores.tolist() if set_scores is not None else None,
+                            'matched_goal_indices': matched_goals.tolist() if matched_goals is not None else None})
                     record['arms'][arm] = {'diagnostic_success': bool(success),
                         'realized_reset_state': trace[0].tolist(),
                         'state_after_warmup': trace[10].tolist(),
@@ -326,7 +335,8 @@ def main():
     if args.goal_agent_audit:
         report['protocol']['goal_agent_intervention'] = {
             'offsets_px': [[0,0],[-32,0],[32,0],[0,-32],[0,32]],
-            'selection': 'All executed actions use original goal; variants are scoring-only',
+            'selection': 'goal_set arm minimizes learned endpoint distance over five goals; learned/oracle arms retain original goal',
+            'goal_set_policy_enabled': args.goal_set_policy,
             'limitations': ['Image interventions need not be dynamically reachable goal states',
                 'Agent motion can change object occlusion; inspect saved target renders',
                 'Ranking sensitivity does not establish long-term control inferiority or novelty']}

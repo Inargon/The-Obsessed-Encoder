@@ -59,8 +59,8 @@ def verify_baseline(report, reference):
         raise AssertionError('Query count changed')
     for query, old in zip(report['queries'], reference['queries']):
         assert query['row'] == old['row'], 'Query selection changed'
-        for arm, value in query['arms'].items():
-            previous = old['arms'][arm]
+        for arm, previous in old['arms'].items():
+            value = query['arms'][arm]
             assert value['diagnostic_success'] == previous['diagnostic_success']
             np.testing.assert_allclose([value['final_xy_error'], value['final_angle_error']],
                 [previous['final_xy_error'], previous['final_angle_error']], atol=1e-5, rtol=0)
@@ -71,3 +71,10 @@ def verify_baseline(report, reference):
                     np.testing.assert_allclose(decision[key], before[key], atol=1e-5, rtol=0)
                 for key in ('learned_cost', 'oracle_cost'):
                     np.testing.assert_allclose(decision[key], before[key], atol=1e-4, rtol=1e-5)
+
+
+def goal_set_cost(cost_matrix):
+    costs = np.asarray(cost_matrix, dtype=float)
+    if costs.ndim != 2 or min(costs.shape) < 1 or not np.isfinite(costs).all():
+        raise ValueError('Expected finite goal x candidate costs')
+    return costs.min(axis=0), costs.argmin(axis=0)

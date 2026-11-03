@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 import numpy as np
-from goal_agent_intervention import render_goal_variants, rank_variants, verify_baseline
+from goal_agent_intervention import render_goal_variants, rank_variants, verify_baseline, goal_set_cost
 
 
 class GoalAgentTests(unittest.TestCase):
@@ -68,6 +68,16 @@ class GoalAgentTests(unittest.TestCase):
         space.reindex_shapes_for_body(body)
         restored = Recorder(); space.debug_draw(restored)
         self.assertEqual(restored.positions, original.positions)
+
+    def test_goal_set_reduction_and_duplicate_invariance(self):
+        costs = np.array([[1., 4., 3.], [2., .5, 5.]])
+        scores, matches = goal_set_cost(costs)
+        np.testing.assert_array_equal(scores, [1., .5, 3.])
+        np.testing.assert_array_equal(matches, [0, 1, 0])
+        np.testing.assert_array_equal(goal_set_cost(costs[:1])[0], costs[0])
+        np.testing.assert_array_equal(goal_set_cost(np.r_[costs, costs])[0], scores)
+        with self.assertRaises(ValueError):
+            goal_set_cost([[np.nan]])
 
     def test_rank_flips_excludes_numeric_ties(self):
         costs = [[1,2], [2,1], [1+1e-8,1], [1,2], [1,2]]
