@@ -19,6 +19,7 @@ from utils import get_column_normalizer, get_img_preprocessor, SaveCkptCallback
 from additional_files import callbacks
 from additional_files.allocation_regularizers import AllocationRegularizer
 from additional_files.control_objectives import ControlObjective
+from additional_files.action_effect_ratio import ActionEffectRatio
 from additional_files.future_goal_objective import FutureGoalObjective
 from additional_files.delta_jepa import LatentDifferenceActionDecoder
 from additional_files.jepa_bisim import RewardFreeBisimulationObjective
@@ -240,6 +241,36 @@ def lejepa_forward(self, batch, stage, cfg):
                 )
             )
 
+    # Experimental action-effect ratio.  Keep this separate from the existing
+    # reachability and router losses so the first pilot measures its own effect.
+    if hasattr(self.model, "action_effect_ratio"):
+        ratio_cfg = cfg.loss.action_effect_ratio
+        horizon = int(ratio_cfg.get("horizon", 1))
+        if not 1 <= horizon < emb.size(1):
+            raise ValueError("action_effect_ratio horizon must fit the encoded clip")
+        action_chunks = torch.cat(
+            [batch["action"][:, offset : emb.size(1) - horizon + offset]
+             for offset in range(horizon)], dim=-1
+        )
+        changed_start = changed_end = None
+        if float(ratio_cfg.get("consistency_weight", 0.0)) > 0:
+            if "pixels_counterfactual" not in batch:
+                raise ValueError("action_effect_ratio consistency requires a matched pixel tag view")
+            changed_output = self.model.encode({
+                "pixels": batch["pixels_counterfactual"],
+                "action": batch["action"],
+            })
+            changed_start = changed_output["emb"][:, :-horizon]
+            changed_end = changed_output["emb"][:, horizon:]
+        effect = self.model.action_effect_ratio(
+            emb[:, :-horizon], emb[:, horizon:], action_chunks,
+            counterfactual_start=changed_start,
+            counterfactual_end=changed_end,
+            consistency_weight=float(ratio_cfg.get("consistency_weight", 0.0)),
+        )
+        output.update(effect)
+        output["loss"] = output["loss"] + float(ratio_cfg.get("weight", 1.0)) * effect["action_effect_loss"]
+
     # Matched Delta-JEPA baseline.  This branch intentionally bypasses the
     # control router: it supervises latent displacements directly and is a
     # competing representation objective, not a component of Ours.
@@ -389,6 +420,17 @@ def run(cfg):
             embed_dim=cfg.embed_dim,
             action_dim=cfg.model.action_encoder.input_dim,
             **control_kwargs,
+        )
+
+    ratio_cfg = cfg.loss.get("action_effect_ratio")
+    if ratio_cfg and ratio_cfg.get("enabled", True):
+        horizon = int(ratio_cfg.get("horizon", 1))
+        if horizon < 1:
+            raise ValueError("action_effect_ratio horizon must be positive")
+        world_model.action_effect_ratio = ActionEffectRatio(
+            embed_dim=cfg.embed_dim,
+            action_dim=cfg.model.action_encoder.input_dim * horizon,
+            hidden_dim=int(ratio_cfg.get("hidden_dim", 256)),
         )
 
     delta_cfg = cfg.loss.get("delta_jepa")
