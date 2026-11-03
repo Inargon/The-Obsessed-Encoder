@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import random
 from pathlib import Path
 
 os.environ.setdefault("MUJOCO_GL", "egl")
@@ -29,6 +31,11 @@ def main() -> None:
     parser.add_argument("--video-dir", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
 
     model = load_inference_model(args.run_name, args.checkpoint).to("cuda")
     model.eval().requires_grad_(False)
@@ -68,6 +75,13 @@ def main() -> None:
         "tagged": args.tagged,
         "num_eval": args.num_eval,
         "seed": args.seed,
+        "episodes": callback._episodes,
+        "start_steps": callback._starts,
+        "evaluation_config": OmegaConf.to_container(callback.cfg, resolve=True),
+        "checkpoint_sha256": hashlib.sha256((Path(os.environ.get("STABLEWM_HOME", Path.home() / ".stable_worldmodel")) /
+            "checkpoints" / args.run_name / args.checkpoint).read_bytes()).hexdigest(),
+        "episode_successes": successes.tolist(),
+        "scope": "Matched starts from specified dataset; not guaranteed held out from model training",
         "success_rate": float(metrics["success_rate"]) / 100.0,
         "successful_episode_indices": np.flatnonzero(successes).tolist(),
         "video_dir": str(args.video_dir) if args.video_dir else None,
