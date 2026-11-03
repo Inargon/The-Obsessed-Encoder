@@ -19,6 +19,7 @@ from utils import get_column_normalizer, get_img_preprocessor, SaveCkptCallback
 from additional_files import callbacks
 from additional_files.allocation_regularizers import AllocationRegularizer
 from additional_files.control_objectives import ControlObjective
+from additional_files.future_goal_objective import FutureGoalObjective
 from additional_files.delta_jepa import LatentDifferenceActionDecoder
 from additional_files.jepa_bisim import RewardFreeBisimulationObjective
 from additional_files.aligned_gradient_routing import control_aligned_prediction_surrogate
@@ -256,6 +257,15 @@ def lejepa_forward(self, batch, stage, cfg):
         output.update(bisim)
         output["loss"] = output["loss"] + output["bisim_loss"]
 
+    if hasattr(self.model, "future_goal_objective"):
+        # Validation may end in a singleton batch, which has no marginal-goal
+        # contrast. Skip only that auxiliary term, not the original JEPA loss.
+        output["future_goal_skipped_singleton"] = emb.new_tensor(float(emb.size(0) < 2))
+        if emb.size(0) >= 2:
+            future_goal = self.model.future_goal_objective(emb)
+            output.update(future_goal)
+            output["loss"] = output["loss"] + future_goal["future_goal_loss"]
+
     metrics_dict = {
         f"{stage}/{k}": v.detach()
         for k, v in output.items()
@@ -288,6 +298,7 @@ def lejepa_forward(self, batch, stage, cfg):
         or k.startswith("component_grad/")
         or k.startswith("delta_")
         or k.startswith("bisim_")
+        or k.startswith("future_goal_")
     }
     self.log_dict(metrics_dict, on_step=True, sync_dist=True)
     return output
@@ -357,6 +368,18 @@ def run(cfg):
     ##############################
 
     world_model = hydra.utils.instantiate(cfg.model)
+
+    future_cfg = cfg.loss.get("future_goal")
+    if future_cfg and future_cfg.get("enabled", True):
+        # This pilot isolates a single auxiliary objective; no historical router/loss stack.
+        for other in ("control", "aligned_gradient_routing", "bloop", "delta_jepa",
+                      "bisimulation", "counterfactual_planning", "allocation", "decision_subspace"):
+            block = cfg.loss.get(other)
+            if block and block.get("enabled", True):
+                raise ValueError("future_goal pilot cannot combine with loss." + other)
+        kwargs = OmegaConf.to_container(future_cfg, resolve=True)
+        kwargs.pop("enabled", None)
+        world_model.future_goal_objective = FutureGoalObjective(embed_dim=cfg.embed_dim, **kwargs)
 
     control_cfg = cfg.loss.get("control")
     if control_cfg and control_cfg.get("enabled", True):

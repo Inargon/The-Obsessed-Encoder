@@ -1,0 +1,38 @@
+Budget-conditioned observed-future auxiliary task -- implementation pilot
+
+Estimand: a contrastive score for future goals observed under the dataset's
+collection policy, with a uniform sampled future offset in 1..H. NOT optimal
+reachability, NOT a calibrated success probability, NOT shortest-path distance.
+H is in model tokens (5 native actions per token in current PushT config).
+Initial pilot budgets 1/2/3 therefore cover 5/10/15 native actions, not long-range planning.
+
+For each continuous B,T,D clip batch, query the first observation with H.
+The H observed future embeddings in that clip are positive goal samples.
+Other clips' future embeddings provide the empirical marginal goal distribution.
+No k>H frame from the same clip is assigned an unreachable label.
+Overlapping episodes and duplicated goals can contaminate contrastive sampling;
+this is a known limitation, not evidence of actual unreachability.
+
+Both arms train JEPA prediction + SIGReg from scratch, plus identical auxiliary
+heads. Identical seed and architecture; only detach_representation differs.
+detached: auxiliary gradients update heads only, JEPA still updates the encoder.
+joint: auxiliary gradients also update encoder/projector. No extra direct
+gradient to the dynamics predictor; any benefit there is indirect.
+No control/inverse/cycle/routing objectives in this pair.
+No physical-state labels or simulator calls are added during training.
+
+Default submission: 20 updates per arm, gradient/serialization/training smoke only.
+Do NOT interpret successful smoke or higher source-ID accuracy as better control.
+Base training retains its historical random-window validation split. This is not
+episode-held-out evaluation; validation accuracy is not a generalization claim.
+Models are NOT evaluation-tuned by this script. A full run and unchanged-MPC
+evaluation require matched checkpoint steps, shared held-out starts, and equal budgets.
+Strip future_goal_objective.* only for core-model inference. The patched
+evaluate_reacher_checkpoint.load_inference_model supports this; older independent
+loaders may need the same explicit handling (do not use strict=False globally).
+
+Full experiment acceptance: joint improves closed-loop outcomes over detached
+with unchanged latent-distance MPC across matched seeds. Compare temporal-distance
+and established goal-conditioned objectives before claiming any methodological novelty.
+If only auxiliary source classification improves, the hypothesis is unsupported.
+Head-based planning is a separate experiment; this pilot does not test its efficacy.
