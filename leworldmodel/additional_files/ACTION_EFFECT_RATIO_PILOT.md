@@ -3,6 +3,20 @@
 Status: implemented as an opt-in training objective; **no environment result has
 been measured**. Do not treat the unit tests as evidence of nuisance invariance.
 
+## Fast synthetic check
+
+`python leworldmodel/additional_files/smoke_action_effect_ratio.py` runs in
+about 13 seconds on a CPU. It generates a 2D position that changes with the
+action and a separate 3D tag that stays fixed across each transition. Over
+three seeds, adding score consistency at weight 0.1 reduced the held-out mean
+absolute tag-only score change from `0.1869 +/- 0.0774` to
+`0.1513 +/- 0.0361`. The true-vs-shuffled action score margin remained
+positive (`163.05 +/- 5.94` versus `150.92 +/- 17.70`). The improvement is
+modest relative to seed variation, and the margin scale depends on the
+Gaussian likelihood model. This check supports only that the code can learn
+an action-sensitive score without eliminating the tag intervention effect;
+it does **not** establish a benefit on Tagged PushT.
+
 The existing `masked_reachability` objective already has action-conditioned
 query and endpoint-key heads. Merely renaming those heads forward/backward is
 not a new method. This pilot instead estimates
