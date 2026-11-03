@@ -360,10 +360,16 @@ def run(cfg):
     # <<< obsessed-encoder
     transforms = [get_img_preprocessor(source='pixels', target='pixels', img_size=cfg.img_size)]
     counterfactual_cfg = cfg.loss.get("counterfactual_planning")
-    if counterfactual_cfg and counterfactual_cfg.get("enabled", True):
+    ratio_cfg = cfg.loss.get("action_effect_ratio")
+    needs_counterfactual = bool(
+        (counterfactual_cfg and counterfactual_cfg.get("enabled", True))
+        or (ratio_cfg and ratio_cfg.get("enabled", True)
+            and float(ratio_cfg.get("consistency_weight", 0.0)) > 0)
+    )
+    if needs_counterfactual:
         if not tag_cfg or tag_cfg.get("counterfactual_key") != "pixels_counterfactual":
             raise ValueError(
-                "counterfactual planning requires "
+                "matched-tag training requires "
                 "pixel_tag.counterfactual_key=pixels_counterfactual"
             )
         transforms.append(
