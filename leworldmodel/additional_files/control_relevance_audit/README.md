@@ -188,3 +188,39 @@ guaranteed held out from encoder pretraining. A favorable result warrants a
 controlled intervention and physical evaluation; it is not a new method result.
 Local validation covers NumPy readouts and alignment guards. Native GPU extraction
 requires the cluster dependencies and is not locally verified.
+
+## Budget and goal-role pilots (2026-11-04)
+
+User reported submission of budget-continuation job **114676**. No completion or
+metrics have been received yet. This job uses independent recorded goals and
+censored labels, not optimal-policy reachability.
+
+Submit `slurm_goal_role.sbatch` for the separate target-only augmentation pilot.
+It collects 60 distinct source episodes, six actual 40-step action branches per
+start, three goals and five rendered target-agent positions. All branch replay
+checks pin the realized state; no incomplete snapshot is used to restore physics.
+No target marker is rendered. Two goals are candidate endpoints (hindsight), one
+is a recorded future pose. This is a constructed candidate benchmark, not an
+estimate of deployment probabilities. Targets may be satisfied by multiple
+candidates. First-hit labels are monotone at budgets 5/10/20/40; initially
+satisfied goals are reported and excluded from nontrivial opportunity counts.
+
+The frozen JEPA head takes history embeddings, historical actions, a candidate
+action sequence, and a goal embedding. Original and target-augmented arms have
+the same architecture, training steps, initialization, sample order and train-only
+normalization. Three head seeds use one fixed source-episode split. Augmentation
+uses horizontal target-agent shifts; vertical shifts are reserved for evaluation.
+Validation on original targets selects checkpoints for both arms. Test episodes
+are held out from the head, NOT guaranteed held out from encoder pretraining.
+Candidate sequence banks exclude query episodes. Goal renders can change object
+occlusion; inspect the exported images before drawing mechanistic conclusions.
+
+Outputs include source episode IDs, checkpoint digest, true branch traces,
+features, per-epoch validation curves, selected heads and per-query predictions.
+Read both sensitivity and candidate opportunity misses, separately for hindsight
+and recorded goals. Lower sensitivity alone is insufficient: a constant predictor
+is invariant too. This pilot does not change the world-model encoder and does not
+establish novelty, causal state identification, or closed-loop MPC improvements.
+If robustness improves while candidate decisions deteriorate, the hypothesis is
+not supported by this run. Any promising result needs matched longer-budget
+encoder training and closed-loop evaluation; a short pilot cannot settle that.
