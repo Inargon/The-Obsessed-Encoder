@@ -12,7 +12,7 @@ from pathlib import Path
 import sys
 import numpy as np
 from budget_data import episode_runs
-from goal_role_data import branch_targets
+from goal_role_data import branch_targets, set_render_pose
 from goal_agent_intervention import render_goal_variants
 
 
@@ -105,9 +105,9 @@ def main():
             for gi, goal in enumerate(poses):
                 target_env.reset(seed=args.seed+qi)
                 target_env.agent.position = tuple(np.clip(states[row+60,:2],48,464))
-                target_env.block.position = tuple(goal[:2]); target_env.block.angle = float(goal[2])
                 target_env.space.reindex_shapes_for_body(target_env.agent)
-                target_env.space.reindex_shapes_for_body(target_env.block)
+                set_render_pose(target_env.block, target_env.space, goal)
+                np.testing.assert_allclose(snapshot(target_env)[2:5],goal,atol=1e-6,rtol=0)
                 images, _ = render_goal_variants(target_env, lambda:snapshot(target_env))
                 np.testing.assert_allclose(snapshot(target_env)[2:5],goal,atol=1e-6,rtol=0)
                 emb.append(encode(images))

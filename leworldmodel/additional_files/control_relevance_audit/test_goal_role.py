@@ -1,9 +1,47 @@
 import unittest
 import numpy as np
-from goal_role_data import branch_targets, group_split, evaluate_predictions
+from goal_role_data import branch_targets, group_split, evaluate_predictions, set_render_pose
 
 
 class GoalRoleTests(unittest.TestCase):
+    def test_angle_must_precede_position_and_geometry_refresh(self):
+        from types import SimpleNamespace
+        class OffsetBody:
+            position = (0.,0.)
+            _angle = 0.
+            @property
+            def angle(self):
+                return self._angle
+            @angle.setter
+            def angle(self, value):
+                self.position = (self.position[0]+43.,self.position[1]-75.)
+                self._angle = value
+        body = OffsetBody()
+        cached = []
+        space = SimpleNamespace(reindex_shapes_for_body=lambda b:cached.append([*b.position,b.angle]))
+        goal = [232.76039159,275.49869451,7.08797263]
+        set_render_pose(body,space,goal)
+        np.testing.assert_allclose(cached,[goal])
+
+    def test_real_offset_center_of_gravity_pose(self):
+        try:
+            import pymunk
+        except ImportError:
+            self.skipTest('Pymunk unavailable locally; mandatory in collector environment')
+        space = pymunk.Space()
+        body = pymunk.Body(1,100)
+        shape = pymunk.Circle(body,5,offset=(0,40))
+        space.add(body,shape)
+        body.center_of_gravity = (0,40)
+        body.position = (232.76039159,275.49869451)
+        before = np.asarray(body.position).copy()
+        body.angle = 7.08797263
+        self.assertGreater(np.linalg.norm(np.asarray(body.position)-before),1.)
+        for angle in (7.08797263,-1.2,0.):
+            goal = [232.76039159,275.49869451,angle]
+            set_render_pose(body,space,goal)
+            np.testing.assert_allclose(body.local_to_world((0,0)),goal[:2],atol=1e-6)
+
     def test_multiple_success_and_first_hit(self):
         current = np.zeros(10); current[2] = 100
         trace = np.broadcast_to(current,(3,40,10)).copy()

@@ -2,6 +2,22 @@
 import numpy as np
 
 
+def set_render_pose(body, space, pose):
+    """Set body-origin pose, then refresh rendering geometry, without stepping.
+
+    For an offset center of gravity, changing angle can move body.position.
+    Position must therefore be assigned AFTER angle (PushT's T is asymmetric).
+    """
+    pose = np.asarray(pose, dtype=float)
+    if pose.shape != (3,) or not np.isfinite(pose).all():
+        raise ValueError('Expected finite x,y,angle')
+    body.angle = float(pose[2])
+    body.position = tuple(pose[:2])
+    space.reindex_shapes_for_body(body)
+    np.testing.assert_allclose([*body.position, body.angle], pose, atol=1e-6, rtol=0,
+                               err_msg='Target body-origin pose not realized')
+
+
 def branch_targets(initial, traces, goal, budgets=(5, 10, 20, 40)):
     from budget_data import pose_hits
     traces = np.asarray(traces)
