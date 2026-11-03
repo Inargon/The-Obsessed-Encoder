@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import numpy as np
 from budget_data import episode_runs, build_split
+from budget_controls import select_features, evaluation_masks
 
 
 def main():
@@ -23,11 +24,14 @@ def main():
     p.add_argument('--samples', type=int, default=12000)
     p.add_argument('--epochs', type=int, default=200)
     p.add_argument('--seed', type=int, default=73)
+    p.add_argument('--model-seed', type=int)
+    p.add_argument('--feature-mode', choices=['geometry','current','history'], default='history')
+    p.add_argument('--reference', type=Path, help='Original run; verify identical rows/labels/masks before training')
     args = p.parse_args()
     if args.samples < 100 or args.epochs < 1:
         raise ValueError('Need >=100 samples and >=1 epoch')
     out = Path(args.output); out.mkdir(parents=True, exist_ok=False)
-    torch.manual_seed(args.seed)
+    torch.manual_seed(args.seed if args.model_seed is None else args.model_seed)
     budgets = [0, 5, 10, 20, 40, 80]
     with h5py.File(args.dataset, 'r') as f:
         states = f['state'][:]
@@ -42,6 +46,16 @@ def main():
     arrays = [build_split(states, [runs[i] for i in part],
                          args.samples if k == 0 else args.samples//3,
                          args.seed+100+k, budgets) for k, part in enumerate(partitions)]
+    if args.reference:
+        for name, (_, y, m, rows) in zip(('train','validation','test'), arrays):
+            with np.load(args.reference/(name+'.npz')) as previous:
+                for key, value in [('rows',rows),('labels',y),('known',m)]:
+                    np.testing.assert_array_equal(value,previous[key],err_msg='Reference mismatch: '+name+'/'+key)
+        print('BUDGET_REFERENCE_MATCHED',str(args.reference),flush=True)
+    arrays = [(select_features(x,args.feature_mode),y,m,rows) for x,y,m,rows in arrays]
+    end_rows = np.empty(len(ids),dtype=np.int64)
+    for a,b in runs:
+        end_rows[a:b] = b-1
     mean, std = arrays[0][0].mean(0), arrays[0][0].std(0)
     std[std < 1e-6] = 1
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -108,14 +122,24 @@ def main():
             raise AssertionError('Nonmonotone CDF')
         reports[name] = {'model': metrics(pred, yn, mn),
                          'train_prior': metrics(np.broadcast_to(prior, pred.shape), yn, mn)}
+        remaining = end_rows[provenance[:,0]]-provenance[:,0]
+        subsets = evaluation_masks(yn,mn,remaining,max(budgets))
+        reports[name]['subsets'] = {subset:{'model':metrics(pred,yn,mask),
+            'train_prior':metrics(np.broadcast_to(prior,pred.shape),yn,mask)}
+            for subset,mask in subsets.items()}
         np.savez_compressed(out/(name+'.npz'), rows=provenance, labels=yn, known=mn, predictions=pred)
     report = {'scope': __doc__, 'args': vars(args), 'selected_epoch': selected,
-              'input': 'three consecutive recorded seven-state rows, periodic angles, goal pose',
+              'input': args.feature_mode,
+              'ablation': '28 input slots and same MLP; excluded inputs zero padded; three model seeds do not constitute independent dataset splits',
+              'censoring_note': 'Complete-followup subsets avoid outcome-dependent label availability but select longer remaining trajectories; no full-population calibration claim',
               'predicate': 'block translation <=10px AND wrapped angle <=0.15rad; diagnostic only',
               'episode_ids': [[int(ids[runs[i][0]]) for i in part] for part in partitions],
               'budgets_raw_steps': budgets, 'results': reports}
+    report['args']['reference'] = str(args.reference) if args.reference else None
     (out/'report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
-    print('BUDGET_TEST', json.dumps(reports['test']), flush=True)
+    for subset,values in reports['test']['subsets'].items():
+        print('BUDGET_CONTROL',args.feature_mode,args.model_seed,subset,
+              json.dumps(values['model']),flush=True)
     print('BUDGET_REACHABILITY_COMPLETE', out/'report.json', flush=True)
 
 
