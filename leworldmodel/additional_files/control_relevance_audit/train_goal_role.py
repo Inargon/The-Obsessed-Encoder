@@ -20,6 +20,7 @@ def main():
     p.add_argument('--features', type=Path, required=True)
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--epochs', type=int, default=200)
+    p.add_argument('--state-cache', type=Path)
     args = p.parse_args()
     if args.epochs < 1:
         p.error('epochs must be positive')
@@ -28,6 +29,20 @@ def main():
         hist, actions, goals, labels, initial_hit, groups = [d[k].copy() for k in
             ('history','actions','goals','labels','initial_hit','episode')]
     q,g,v,e = goals.shape
+    if args.state_cache:
+        with np.load(args.state_cache) as d:
+            np.testing.assert_array_equal(groups,d['episode'])
+            state_history, state_goals = d['state_history'],d['goal_poses']
+        def periodic(a):
+            return np.concatenate([a[...,:4],np.sin(a[...,4:5]),np.cos(a[...,4:5]),a[...,5:]],axis=-1)
+        sh = periodic(state_history).reshape(q,-1)
+        gh = np.concatenate([state_goals[...,:2],np.sin(state_goals[...,2:3]),np.cos(state_goals[...,2:3])],axis=-1)
+        padded = np.zeros_like(hist)
+        padded[:,:sh.shape[1]] = sh
+        padded[:,-20:] = hist[:,-20:]
+        hist = padded
+        goals = np.zeros_like(goals)
+        goals[:,:,:,:4] = gh[:,:,None,:]
     c = actions.shape[1]; h = labels.shape[-1]
     if v != 5 or labels.shape != (q,g,c,h) or len(np.unique(groups)) != q:
         raise ValueError('Unexpected feature layout or repeated source episodes')
@@ -52,7 +67,7 @@ def main():
     vx, vy = x[val,:,0].reshape(-1,x.shape[-1]), yy[val].reshape(-1,h)
     reports = []
     for seed in (901,902,903):
-        for mode in ('original','goal_augmented'):
+        for mode in (('original',) if args.state_cache else ('original','goal_augmented')):
             torch.manual_seed(seed)
             model = nn.Sequential(nn.Linear(x.shape[-1],128),nn.SiLU(),nn.Linear(128,128),
                                   nn.SiLU(),nn.Linear(128,h)).to(device)
@@ -79,7 +94,8 @@ def main():
                     model.eval()
                     with torch.no_grad():
                         vb = float(((predict(vx)-vy)**2).mean())
-                    curve.write(json.dumps({'epoch':epoch,'validation_original_brier':vb})+'\n')
+                        tb = float(((predict(tx[:,0])-ty)**2).mean())
+                    curve.write(json.dumps({'epoch':epoch,'validation_original_brier':vb,'train_original_brier':tb})+'\n')
                     if vb < best:
                         best, selected = vb, epoch
                         best_state = {k:v.detach().cpu().clone() for k,v in model.state_dict().items()}
@@ -101,7 +117,8 @@ def main():
                 'original':result['test'][0],
                 'unseen_up':result['test'][3],'unseen_down':result['test'][4]}),flush=True)
     prior = labels[train].mean((0,1,2))
-    report = {'scope':__doc__,'feature_file':str(args.features.resolve()),'budgets':[5,10,20,40],
+    report = {'scope':__doc__,'input': 'replayed privileged state' if args.state_cache else 'frozen visual features',
+        'feature_file':str(args.features.resolve()),'budgets':[5,10,20,40],
         'episodes':{k:groups[idx].tolist() for k,idx in zip(('train','validation','test'),(train,val,test))},
         'goal_sources':['branch1_endpoint','branch2_endpoint','recorded_future60'],
         'baseline_train_prior':evaluate_predictions(np.broadcast_to(prior,(len(test),g,v,c,h)),labels[test],initial_hit[test]),
