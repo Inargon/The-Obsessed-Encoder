@@ -25,6 +25,24 @@ def goal_error(state, goal):
     return float(np.linalg.norm(d[:2])), float(abs(np.arctan2(np.sin(d[2]), np.cos(d[2]))))
 
 
+def physical_branch_costs(branches, goal):
+    """Fixed diagnostic objective: endpoint max of tolerance-normalized errors.
+
+    If a branch ever meets both success tolerances, prefer that successful branch.
+    No weights fitted on existing cases; not the official PushT overlap reward.
+    """
+    branches = np.asarray(branches, dtype=float)
+    if branches.ndim != 3 or branches.shape[1] < 1 or branches.shape[2] != 10 or not np.isfinite(branches).all():
+        raise ValueError('Expected finite full-state branches')
+    scores = []
+    for branch in branches:
+        errors = [goal_error(s, goal) for s in branch]
+        successful = [max(x / 10., a / .1) for x, a in errors if x <= 10 and a <= .1]
+        x, a = errors[-1]
+        scores.append(min(successful) if successful else max(x / 10., a / .1))
+    return np.asarray(scores)
+
+
 def candidate_diagnostics(current, branches, goal, learned_cost, oracle_cost):
     """Physical short-horizon diagnostics only; never used for action selection."""
     branches = np.asarray(branches, dtype=float)
@@ -92,6 +110,8 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--goal-agent-audit', action='store_true')
     p.add_argument('--goal-set-policy', action='store_true')
+    p.add_argument('--physical-policy', action='store_true')
+    p.add_argument('--exclude-report', type=Path)
     p.add_argument('--reference-report', type=Path)
     p.add_argument('--queries', type=int, default=2)
     p.add_argument('--budget', type=int, default=25)
@@ -103,6 +123,9 @@ def main():
     if args.goal_set_policy and not args.goal_agent_audit:
         p.error("Goal-set policy requires --goal-agent-audit")
     reference = json.loads(args.reference_report.read_text()) if args.reference_report else None
+    excluded = set()
+    if args.exclude_report:
+        excluded = {int(q['episode']) for q in json.loads(args.exclude_report.read_text())['queries']}
     if args.out.exists() or args.queries < 1 or args.candidates < 2 or args.budget < 5 or args.budget % 5 or args.goal_offset < 15:
         p.error('New output, valid counts, budget multiple of five required')
     os.environ.setdefault('SDL_VIDEODRIVER', 'dummy')
@@ -138,7 +161,7 @@ def main():
     for clip in rng.permutation(len(dataset)):
         ep, start = map(int, dataset.clip_indices[int(clip)])
         row = int(dataset.offsets[ep]) + start
-        if ep in used or start + args.goal_offset >= int(dataset.lengths[ep]):
+        if ep in used or int(episodes[row]) in excluded or start + args.goal_offset >= int(dataset.lengths[ep]):
             continue
         if not np.isfinite(states[row:row+args.goal_offset+1]).all() or not np.isfinite(actions[row:row+10]).all():
             continue
@@ -155,6 +178,10 @@ def main():
         for chunk in iter(lambda: f.read(1024 * 1024), b''):
             digest.update(chunk)
     report = {'protocol': {**vars(args), 'out': str(args.out), 'reference_report': str(args.reference_report) if args.reference_report else None,
+        'exclude_report': str(args.exclude_report) if args.exclude_report else None,
+        'excluded_episodes': sorted(excluded),
+        'preselected_rows': rows, 'preselected_episode_ids': [int(episodes[r]) for r in rows],
+        'physical_score': 'First prefer any-step diagnostic success; otherwise minimize endpoint max(xy/10px, wrapped_angle/0.1rad). Fixed before new outcomes; not official reward.',
         'checkpoint_sha256': digest.hexdigest(), 'horizon': 5, 'history': 3, 'frameskip': 5,
         'score': 'Squared projected-latent distance to identical rendered final goal',
         'restore': 'Pin realized post-reset state/image for each request; verify repeated resets and full prefix replay',
@@ -168,6 +195,8 @@ def main():
             'Oracle is simulator-assisted diagnostic, not deployable policy',
             'Physical candidate diagnostics measure short-horizon progress only; temporary retreat may be necessary',
             'Pareto dominance uses xy and wrapped-angle errors separately, no fitted physical cost weights']}, 'queries': []}
+
+    (args.out / 'protocol.json').write_text(json.dumps(report['protocol'], indent=2, allow_nan=False))
 
     def snapshot():
         return np.array([*env.agent.position, *env.block.position, env.block.angle,
@@ -239,7 +268,12 @@ def main():
                           'initial': initial.tolist(), 'goal': goal.tolist(),
                           'rendered_goal_state': goal_trace[0].tolist(),
                           'goal_agent_variants': goal_variant_records, 'arms': {}}
-                for arm in (('learned', 'oracle', 'goal_set') if args.goal_set_policy else ('learned', 'oracle')):
+                arms = ['learned', 'oracle']
+                if args.goal_set_policy:
+                    arms.append('goal_set')
+                if args.physical_policy:
+                    arms.append('physical')
+                for arm in arms:
                     prefix = list(prefix0.copy())
                     frames, trace = restore(initial, goal, prefix, seed)
                     xy, angle = goal_error(trace[-1], goal)
@@ -270,6 +304,7 @@ def main():
                         real_emb = encode(real_images)
                         oracle_cost = (real_emb - goal_emb).square().sum(-1).cpu().numpy()
                         diagnostic = candidate_diagnostics(current, branch_traces, goal, learned_cost, oracle_cost)
+                        physical_cost = physical_branch_costs(branch_traces, goal)
                         intervention = None
                         if goal_variant_embs is not None:
                             intervention = {}
@@ -286,7 +321,7 @@ def main():
                         set_scores, matched_goals = None, None
                         if args.goal_set_policy:
                             set_scores, matched_goals = goal_set_cost(intervention['learned']['costs'])
-                        chosen = choose(set_scores if arm == 'goal_set' else
+                        chosen = choose(physical_cost if arm == 'physical' else set_scores if arm == 'goal_set' else
                                         learned_cost if arm == 'learned' else oracle_cost)
                         _, check_trace = restore(initial, goal, prefix, seed)
                         np.testing.assert_allclose(check_trace[-1], current, atol=1e-5, rtol=0)
@@ -303,6 +338,7 @@ def main():
                         trace = np.concatenate((trace, executed))
                         decisions.append({'turn': turn, 'selected': chosen,
                             'learned_cost': learned_cost.tolist(), 'oracle_cost': oracle_cost.tolist(),
+                            'physical_cost': physical_cost.tolist(),
                             'oracle_scoring_regret_of_learned': float(oracle_cost[choose(learned_cost)] - oracle_cost.min()),
                             'xy_error': xy, 'angle_error': angle,
                             'current_state': current.tolist(),
@@ -340,6 +376,10 @@ def main():
             'limitations': ['Image interventions need not be dynamically reachable goal states',
                 'Agent motion can change object occlusion; inspect saved target renders',
                 'Ranking sensitivity does not establish long-term control inferiority or novelty']}
+    if args.physical_policy:
+        from additional_files.control_relevance_audit.summarize_score_control import summarize
+        report['score_control_summary'] = summarize(report)
+        print('SCORE_CONTROL_RESULT', json.dumps(report['score_control_summary']), flush=True)
     (args.out / 'report.json').write_text(json.dumps(report, indent=2, allow_nan=False))
     print('ORACLE_CLOSED_LOOP_COMPLETE', args.out / 'report.json', flush=True)
 
