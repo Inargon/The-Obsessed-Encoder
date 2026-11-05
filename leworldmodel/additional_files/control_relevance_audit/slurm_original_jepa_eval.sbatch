@@ -26,8 +26,10 @@ cp config/eval/pusht.yaml "$out/pusht.yaml"
 cp config/eval/solver/cem.yaml "$out/cem.yaml"
 # Use the existing evaluator and its complete CEM configuration unchanged.
 # Seed 42 is a declared fresh baseline check, not an asserted historical seed.
+num_eval="${JEPA_NUM_EVAL:-50}"
+[[ "$num_eval" =~ ^[1-9][0-9]*$ ]] || { echo 'JEPA_NUM_EVAL must be positive'; exit 1; }
 "$python_bin" -u additional_files/evaluate_pusht_checkpoint.py \
   --run-name pusht_clean_jepa_matched_full_seed0 \
-  --checkpoint weights_epoch_10.pt --seed 42 --num-eval 50 \
+  --checkpoint weights_epoch_10.pt --seed 42 --num-eval "$num_eval" \
   --output "$out/report.json"
 echo "ORIGINAL_JEPA_EVAL_COMPLETE $out/report.json"
