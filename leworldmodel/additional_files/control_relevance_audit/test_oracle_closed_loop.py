@@ -4,6 +4,37 @@ from oracle_closed_loop import choose, goal_error, history_indices, pack_history
 
 
 class OracleTests(unittest.TestCase):
+    def test_static_goal_correction_preserves_agent_and_velocities(self):
+        from types import SimpleNamespace
+        from oracle_closed_loop import exact_goal_image
+        class Body:
+            position = (40., 50.)
+            _angle = 0.
+            @property
+            def angle(self):
+                return self._angle
+            @angle.setter
+            def angle(self, value):
+                self.position = (999., 999.)
+                self._angle = value
+        body = Body()
+        cache = []
+        def snapshot():
+            return np.array([1., 2., *body.position, body.angle, 3., 4., 5., 6., 7.])
+        env = SimpleNamespace(block=body,
+            space=SimpleNamespace(reindex_shapes_for_body=lambda b:cache.append(b.position)),
+            render=lambda:snapshot().reshape(2,5))
+        goal = np.array([0., 0., 10., 20., 1., 0., 0.])
+        frame, state, record = exact_goal_image(env, snapshot, goal)
+        self.assertTrue(record['corrected'])
+        np.testing.assert_allclose(state[2:5], goal[2:5])
+        np.testing.assert_array_equal(state[[0,1,5,6,7,8,9]], [1,2,3,4,5,6,7])
+        self.assertEqual(len(cache), 1)
+        frame2, _, record2 = exact_goal_image(env, snapshot, goal)
+        self.assertFalse(record2['corrected'])
+        np.testing.assert_array_equal(frame, frame2)
+        self.assertEqual(len(cache), 1)
+
     def test_candidate_tradeoff_and_dominance(self):
         goal = np.zeros(10)
         current = np.zeros(10); current[2] = 30; current[4] = .5

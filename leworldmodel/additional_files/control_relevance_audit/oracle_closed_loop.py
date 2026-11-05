@@ -25,6 +25,27 @@ def goal_error(state, goal):
     return float(np.linalg.norm(d[:2])), float(abs(np.arctan2(np.sin(d[2]), np.cos(d[2]))))
 
 
+def exact_goal_image(env, snapshot, goal):
+    """Correct only the static target render, never the rollout reset protocol."""
+    from goal_role_data import set_render_pose
+    before = snapshot().copy()
+    xy, angle = goal_error(before, goal)
+    corrected = xy > 1e-4 or angle > 1e-4
+    if corrected:
+        # Reset can advance physics; assigning angle can also shift an offset
+        # center of gravity. Set angle before position, reindex, and do not step.
+        set_render_pose(env.block, env.space, np.asarray(goal)[2:5])
+    actual = snapshot().copy()
+    xy, angle = goal_error(actual, goal)
+    if xy > 1e-4 or angle > 1e-4:
+        raise ValueError('Exact static target render failed pose verification')
+    np.testing.assert_array_equal(actual[:2], before[:2])
+    np.testing.assert_array_equal(actual[5:], before[5:])
+    frame = np.asarray(env.render()).copy()
+    np.testing.assert_array_equal(snapshot(), actual)
+    return frame, actual, {'corrected': corrected, 'before': before.tolist(), 'after': actual.tolist()}
+
+
 def physical_branch_costs(branches, goal):
     """Fixed diagnostic objective: endpoint max of tolerance-normalized errors.
 
@@ -248,9 +269,9 @@ def main():
                         raise ValueError('Could not form candidate bank')
                     banks.append(np.asarray(bank)); sources.append(source)
                 goal_frames, goal_trace = restore(goal, goal, [], seed)
-                goal_xy, goal_angle = goal_error(goal_trace[0], goal)
-                if goal_xy > 1e-4 or goal_angle > 1e-4:
-                    raise ValueError('Rendered goal object pose differs from requested goal; inspect reset source')
+                target_frame, target_state, target_record = exact_goal_image(env, snapshot, goal)
+                goal_frames, goal_trace = [target_frame], np.asarray([target_state])
+                print('GOAL_RENDER_VERIFIED', qi, json.dumps(target_record), flush=True)
                 goal_emb = encode(goal_frames)[0]
                 goal_variant_embs, goal_variant_records = None, None
                 if args.goal_agent_audit:
@@ -267,6 +288,7 @@ def main():
                 record = {'row': int(row), 'episode': int(episodes[row]), 'candidate_source_rows': sources,
                           'initial': initial.tolist(), 'goal': goal.tolist(),
                           'rendered_goal_state': goal_trace[0].tolist(),
+                          'goal_render_correction': target_record,
                           'goal_agent_variants': goal_variant_records, 'arms': {}}
                 arms = ['learned', 'oracle']
                 if args.goal_set_policy:
