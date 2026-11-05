@@ -29,6 +29,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--tagged", action="store_true")
     parser.add_argument("--video-dir", type=Path)
+    parser.add_argument("--reference-report", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -55,6 +56,24 @@ def main() -> None:
         default_dataset=args.dataset,
     )
     callback._setup(model)
+    protocol = {
+        'run_name': args.run_name, 'checkpoint': args.checkpoint,
+        'tagged': args.tagged, 'num_eval': args.num_eval, 'seed': args.seed,
+        'episodes': np.asarray(callback._episodes).tolist(),
+        'start_steps': np.asarray(callback._starts).tolist(),
+        'evaluation_config': OmegaConf.to_container(callback.cfg, resolve=True),
+        'checkpoint_sha256': hashlib.sha256((Path(os.environ.get('STABLEWM_HOME', Path.home() / '.stable_worldmodel')) /
+            'checkpoints' / args.run_name / args.checkpoint).read_bytes()).hexdigest(),
+    }
+    reference = None
+    if args.reference_report:
+        from additional_files.control_relevance_audit.replay_manifest import verify_reference, failure_manifest
+        reference = json.loads(args.reference_report.read_text())
+        verify_reference(reference, protocol)
+        failures = failure_manifest(reference)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        (args.output.parent / 'reference-failures.json').write_text(json.dumps(failures, indent=2) + '\n')
+        print('REPLAY_REFERENCE_VERIFIED', json.dumps(failures), flush=True)
     with torch.no_grad():
         metrics = callback._world.evaluate(
             dataset=callback._dataset,
@@ -88,6 +107,12 @@ def main() -> None:
         "metrics": metrics,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    result.update(protocol)
+    if reference is not None:
+        from additional_files.control_relevance_audit.replay_manifest import compare_replay
+        comparison = compare_replay(reference, result)
+        (args.output.parent / 'paired-replay.json').write_text(json.dumps(comparison, indent=2) + '\n')
+        print('REPLAY_PAIRED_RESULT', json.dumps(comparison), flush=True)
     args.output.write_text(json.dumps(result, indent=2, default=str) + "\n")
     print(json.dumps(result, indent=2, default=str))
 
