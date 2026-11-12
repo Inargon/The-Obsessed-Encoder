@@ -140,7 +140,11 @@ def main():
     p.add_argument('--goal-offset', type=int, default=100)
     p.add_argument('--seed', type=int, default=1701)
     p.add_argument('--run', default='pusht_clean_jepa_matched_full_seed0')
+    p.add_argument('--tag-ranking', action='store_true',
+                   help='Single-decision paired endpoint diagnostic')
     args = p.parse_args()
+    if args.tag_ranking and (args.budget != 5 or args.goal_agent_audit or args.physical_policy or args.reference_report):
+        p.error('Tag ranking requires one decision and no other policy or reference')
     if args.goal_set_policy and not args.goal_agent_audit:
         p.error("Goal-set policy requires --goal-agent-audit")
     reference = json.loads(args.reference_report.read_text()) if args.reference_report else None
@@ -290,7 +294,7 @@ def main():
                           'rendered_goal_state': goal_trace[0].tolist(),
                           'goal_render_correction': target_record,
                           'goal_agent_variants': goal_variant_records, 'arms': {}}
-                arms = ['learned', 'oracle']
+                arms = ['learned'] if args.tag_ranking else ['learned', 'oracle']
                 if args.goal_set_policy:
                     arms.append('goal_set')
                 if args.physical_policy:
@@ -327,6 +331,25 @@ def main():
                         oracle_cost = (real_emb - goal_emb).square().sum(-1).cpu().numpy()
                         diagnostic = candidate_diagnostics(current, branch_traces, goal, learned_cost, oracle_cost)
                         physical_cost = physical_branch_costs(branch_traces, goal)
+                        if args.tag_ranking:
+                            from additional_files.pixel_tag import PixelTag
+                            from additional_files.stimuli import stamp_corner
+                            from additional_files.control_relevance_audit.tag_rank_metrics import compare
+                            colors = [PixelTag('video', 5, k).color_for(int(episodes[row])) for k in (0, 1)]
+                            scores = {'real': [], 'predicted': []}
+                            for color in colors:
+                                def tagged(images):
+                                    return encode([stamp_corner(im, color, 5) for im in images])
+                                target = tagged(goal_frames)[0]
+                                history = tagged([frames[i] for i in history_indices(len(frames))])
+                                forecast = model.predict(history.unsqueeze(0).expand(len(bank), -1, -1),
+                                                         model.action_encoder(normalized))[:, -1]
+                                for key, endpoint in [('real', tagged(real_images)), ('predicted', forecast)]:
+                                    scores[key].append((endpoint-target).square().sum(-1).cpu().numpy())
+                            record['tag_ranking'] = {key: compare(costs, physical_cost) for key, costs in scores.items()}
+                            record['colors'] = [c.tolist() for c in colors]
+                            record['physical_costs'] = physical_cost.tolist()
+                            print('TAG_RANK', qi, {k: v['regrets'] for k,v in record['tag_ranking'].items()}, flush=True)
                         intervention = None
                         if goal_variant_embs is not None:
                             intervention = {}
