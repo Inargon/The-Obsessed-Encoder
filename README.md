@@ -266,6 +266,14 @@ flags the same interventions as the planner. By default the diagnostic samples
 from the same source dataset as the previous evaluation, so this split does not
 imply that the query episodes were held out from model training.
 
+Add `--paired-alignment` to that campaign for the frozen calibration test.
+It uses disjoint calibration, query, and candidate-bank episodes, checks
+unmodified costs against JEPA's `get_cost`, and includes each query's recorded
+continuation. Compare matched low-rank mappings with mean and diagonal-moment
+corrections and an intentionally shuffled calibration. The report separates
+tag stability, recorded-action ranking, and response to future-action reorder.
+The default 32 anchors and one fixed RGB pair are shared across checkpoints.
+
 ## Repository lineage
 
 This repository began as the companion code for Enigma's

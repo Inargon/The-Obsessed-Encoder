@@ -13,7 +13,9 @@ from counterfactual_planning_campaign import HERE, REPO, environment, source_dig
 from independent_tag_ablation import ARMS, checkpoint_spec, read_json, write_json
 
 
-def evaluate(previous: Path, root: Path, dataset: str, env: dict[str, str]) -> None:
+def evaluate(
+    previous: Path, root: Path, dataset: str, env: dict[str, str], paired_alignment=False, anchors=32,
+) -> None:
     from tag_candidate_audit import summarize_candidate_audit
 
     manifest = read_json(root / "manifest.json")
@@ -23,6 +25,12 @@ def evaluate(previous: Path, root: Path, dataset: str, env: dict[str, str]) -> N
     labels = ("base", *ARMS)
     if set(old["runs"]) != set(labels):
         raise ValueError("Expected the original checkpoint and all four interventions")
+    if paired_alignment:
+        subprocess.run([
+            sys.executable, "-u", str(HERE / "tag_paired_planning.py"), "--previous", str(previous),
+            "--out", str(root / "report.json"), "--dataset", dataset, "--anchors", str(anchors),
+        ], check=True, cwd=REPO, env=env)
+        return
     protocol = old["protocol"]
     raw = root / "candidate-costs.json"
     command = [
@@ -74,9 +82,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--previous", required=True, type=Path, help="Previous tag-intervention.json")
     parser.add_argument("--dataset", help="Optional independent evaluation data")
+    parser.add_argument("--paired-alignment", action="store_true", help="Run the frozen alignment test")
+    parser.add_argument("--anchors", type=int, default=32, help="Calibration episodes for paired alignment")
     parser.add_argument("--partition", default="gpu_shared")
     parser.add_argument("--worker", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.paired_alignment and args.anchors <= 16:
+        parser.error("Paired alignment needs more than 16 calibration episodes")
     previous = args.previous.resolve()
     if not previous.is_file():
         parser.error(f"Previous evaluation missing: {previous}")
@@ -87,19 +99,25 @@ def main() -> None:
     env.setdefault("OMP_NUM_THREADS", "2")
     env.setdefault("MKL_NUM_THREADS", "2")
     if args.worker:
-        evaluate(previous, args.worker, dataset, env)
+        evaluate(previous, args.worker, dataset, env, args.paired_alignment, args.anchors)
         return
 
-    root = REPO / "leworldmodel/results" / f"tag-candidate-audit-{datetime.now():%Y%m%d-%H%M%S-%f}"
+    experiment = "tag-paired-alignment" if args.paired_alignment else "tag-candidate-audit"
+    root = REPO / "leworldmodel/results" / f"{experiment}-{datetime.now():%Y%m%d-%H%M%S-%f}"
     root.mkdir(parents=True, exist_ok=False)
-    manifest = {"source_sha256": source_digest(), "previous": str(previous), "dataset": dataset}
+    manifest = {
+        "source_sha256": source_digest(), "previous": str(previous), "dataset": dataset,
+        "paired_alignment": args.paired_alignment, "anchors": args.anchors,
+    }
     write_json(root / "manifest.json", manifest)
     worker = [
         sys.executable, "-u", str(Path(__file__).resolve()), "--previous", str(previous),
         "--dataset", dataset, "--worker", str(root),
     ]
+    if args.paired_alignment:
+        worker += ["--paired-alignment", "--anchors", str(args.anchors)]
     response = subprocess.check_output([
-        "sbatch", "--parsable", "--partition", args.partition, "--job-name=oe-tag-candidate-audit",
+        "sbatch", "--parsable", "--partition", args.partition, "--job-name=oe-" + experiment,
         "--gres=gpu:1", "--cpus-per-task=4", "--mem=24G", "--time=00:30:00",
         "--chdir", str(REPO), "--output", str(root / "job-%j.out"), "--wrap", shlex.join(worker),
     ], text=True, env=env, cwd=REPO)
