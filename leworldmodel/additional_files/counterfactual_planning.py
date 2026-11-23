@@ -34,6 +34,7 @@ def counterfactual_planning_objective(
     ranking_metric: str = "js",
     margin_fraction: float = 0.25,
     action_margin_reference_only: bool = False,
+    tag_intervention: str = "both",
 ) -> dict[str, torch.Tensor]:
     """Return the loss and diagnostics for a matched pair of visual views."""
     if reference_emb.shape != changed_emb.shape:
@@ -44,6 +45,22 @@ def counterfactual_planning_objective(
         raise ValueError("ranking_metric must be 'js', 'centered_mse', or 'margin_guard'")
     if not 0 <= margin_fraction <= 1:
         raise ValueError("margin_fraction must be between zero and one")
+
+    if tag_intervention == "context_only":
+        changed_target = reference_target
+    elif tag_intervention == "goal_only":
+        changed_pred = reference_pred
+        changed_negative_pred = reference_negative_pred
+    elif tag_intervention == "balanced":
+        # Shuffled batch rows cycle through both, context-only, and goal-only.
+        # Keep the existing RNG stream and use the same actions in every case.
+        mode = torch.arange(changed_pred.shape[0], device=changed_pred.device) % 3
+        mode = mode.reshape(-1, *([1] * (changed_pred.ndim - 1)))
+        changed_pred = torch.where(mode != 2, changed_pred, reference_pred)
+        changed_negative_pred = torch.where(mode != 2, changed_negative_pred, reference_negative_pred)
+        changed_target = torch.where(mode != 1, changed_target, reference_target)
+    elif tag_intervention != "both":
+        raise ValueError(f"Unknown tag intervention {tag_intervention!r}")
 
     ref_pos = _per_item_mse(reference_pred, reference_target)
     ref_neg = _per_item_mse(reference_negative_pred, reference_target)

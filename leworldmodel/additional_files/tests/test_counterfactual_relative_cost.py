@@ -3,8 +3,8 @@ import torch
 from leworldmodel.additional_files.counterfactual_planning import counterfactual_planning_objective
 
 
-def ranking_loss(reference: tuple, changed: tuple, **options):
-    target = torch.zeros(1, 1, 1)
+def ranking_loss(reference: tuple, changed: tuple, changed_target=None, **options):
+    target = torch.zeros_like(reference[0])
     return counterfactual_planning_objective(
         reference_emb=target,
         changed_emb=target,
@@ -13,7 +13,7 @@ def ranking_loss(reference: tuple, changed: tuple, **options):
         reference_negative_pred=reference[1],
         changed_negative_pred=changed[1],
         reference_target=target,
-        changed_target=target,
+        changed_target=target if changed_target is None else changed_target,
         **options,
     )["counterfactual_ranking_loss"]
 
@@ -79,3 +79,23 @@ def test_margin_guard_skips_an_uncertain_reference():
         ranking_metric="margin_guard",
     )
     assert loss.item() == 0.0
+
+
+def test_one_sided_tag_modes_expose_a_shift_shared_by_both_views():
+    reference = (prediction(0.0), prediction(2.0))
+    changed = (prediction(1.0), prediction(3.0))
+    options = dict(changed_target=prediction(1.0), ranking_metric="centered_mse")
+    assert ranking_loss(reference, changed, tag_intervention="both", **options).item() == 0.0
+    assert ranking_loss(reference, changed, tag_intervention="context_only", **options).item() == 4.0
+    assert ranking_loss(reference, changed, tag_intervention="goal_only", **options).item() == 4.0
+
+
+def test_balanced_mode_mixes_the_three_paired_costs_within_the_batch():
+    batch = lambda value: torch.full((3, 2, 1), value)
+    reference = (batch(0.0), batch(2.0))
+    changed = (batch(1.0), batch(3.0))
+    loss = ranking_loss(
+        reference, changed, changed_target=batch(1.0),
+        ranking_metric="centered_mse", tag_intervention="balanced",
+    )
+    torch.testing.assert_close(loss, torch.tensor(8.0 / 3.0))

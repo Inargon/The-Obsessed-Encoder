@@ -226,3 +226,11 @@ for metric in centered_mse margin_guard; do
     --ranking-metric "$metric" --relative-cost-only
 done
 ```
+
+The tag intervention is configurable independently of the ranking metric.
+Use `--tag-intervention context_only` to retag the predictor's context while
+using the original future latent, or `goal_only` to keep the original
+predictions and retag the future latent. `balanced` cycles through both-tag,
+context-only, and goal-only costs over the shuffled batch rows. The default
+is `both`. Matched loss comparisons use `--relative-cost-only` to hold the
+full-embedding matching weight at zero.

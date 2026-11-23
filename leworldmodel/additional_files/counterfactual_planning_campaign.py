@@ -39,7 +39,9 @@ def environment() -> dict[str, str]:
     return env
 
 
-def arm_spec(ranking_metric: str = "js", relative_cost_only: bool = False) -> dict:
+def arm_spec(
+    ranking_metric: str = "js", relative_cost_only: bool = False, tag_intervention: str = "both",
+) -> dict:
     return {
         "overrides": [
             "data.dataset.name=pusht_expert_train.h5",
@@ -54,6 +56,7 @@ def arm_spec(ranking_metric: str = "js", relative_cost_only: bool = False) -> di
             "+loss.counterfactual_planning.margin=0.05",
             "+loss.counterfactual_planning.temperature=0.1",
             f"+loss.counterfactual_planning.ranking_metric={ranking_metric}",
+            f"+loss.counterfactual_planning.tag_intervention={tag_intervention}",
         ],
         "pair_suites": ["colour"],
         "eval_overrides": ["+eval.tag_mode=video", "+eval.tag_size=5"],
@@ -82,7 +85,11 @@ def train(
     if checkpoint.exists() or target.exists():
         raise RuntimeError(f"Refusing existing run: {name}; use a fresh campaign")
     options = "++checkpoint.every_n_steps=5000 ++eval.every_n_steps=2000"
-    arm = arm_spec(manifest.get("ranking_metric", "js"), manifest.get("relative_cost_only", False))
+    arm = arm_spec(
+        manifest.get("ranking_metric", "js"),
+        manifest.get("relative_cost_only", False),
+        manifest.get("tag_intervention", "both"),
+    )
     if phase == "smoke":
         options = (
             "++trainer.max_steps=2 ++checkpoint.every_n_steps=1000000 "
@@ -145,6 +152,7 @@ def main() -> None:
     budget.add_argument("--pilot-steps", type=int)
     parser.add_argument("--init-checkpoint", type=Path)
     parser.add_argument("--ranking-metric", choices=("js", "centered_mse", "margin_guard"), default="js")
+    parser.add_argument("--tag-intervention", choices=("both", "context_only", "goal_only", "balanced"), default="both")
     parser.add_argument("--relative-cost-only", action="store_true")
     parser.add_argument("--partition", default="gpu_shared")
     parser.add_argument("--seeds", default="0")
@@ -178,7 +186,7 @@ def main() -> None:
     else:
         budget_description = "2-step smoke only" if args.smoke_only else "10 epochs after smoke"
     print(f"Tagged PushT counterfactual planning: seeds={seeds}, {budget_description}.")
-    print(f"Ranking metric: {args.ranking_metric}; relative-cost-only: {args.relative_cost_only}")
+    print(f"Ranking metric: {args.ranking_metric}; tag intervention: {args.tag_intervention}; relative-cost-only: {args.relative_cost_only}")
     print("No Lctrl, aligned routing, or privileged state is enabled.")
     if not args.submit:
         print("PLAN ONLY. Pass --submit on the cluster.")
@@ -192,12 +200,16 @@ def main() -> None:
         raise SystemExit(f"Unknown partition {args.partition!r}")
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    root = REPO / "leworldmodel/results" / f"counterfactual-planning-{args.ranking_metric}-{timestamp}"
+    arm_name = args.ranking_metric
+    if args.tag_intervention != "both":
+        arm_name += f"-{args.tag_intervention}"
+    root = REPO / "leworldmodel/results" / f"counterfactual-planning-{arm_name}-{timestamp}"
     root.mkdir(parents=True, exist_ok=False)
     manifest = {
         "source_sha256": source_digest(),
         "training_seeds": seeds,
         "ranking_metric": args.ranking_metric,
+        "tag_intervention": args.tag_intervention,
         "relative_cost_only": args.relative_cost_only,
         "smoke_only": args.smoke_only,
         "pilot_steps": args.pilot_steps,
