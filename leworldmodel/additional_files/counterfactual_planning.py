@@ -31,12 +31,15 @@ def counterfactual_planning_objective(
     ranking_weight: float = 0.1,
     margin: float = 0.05,
     temperature: float = 0.1,
+    ranking_metric: str = "js",
 ) -> dict[str, torch.Tensor]:
     """Return the loss and diagnostics for a matched pair of visual views."""
     if reference_emb.shape != changed_emb.shape:
         raise ValueError("reference and counterfactual embeddings must match")
     if temperature <= 0 or margin < 0:
         raise ValueError("temperature must be positive and margin nonnegative")
+    if ranking_metric not in {"js", "centered_mse"}:
+        raise ValueError("ranking_metric must be 'js' or 'centered_mse'")
 
     ref_pos = _per_item_mse(reference_pred, reference_target)
     ref_neg = _per_item_mse(reference_negative_pred, reference_target)
@@ -51,14 +54,19 @@ def counterfactual_planning_objective(
 
     ref_scores = torch.stack((ref_pos, ref_neg), dim=-1)
     changed_scores = torch.stack((changed_pos, changed_neg), dim=-1)
-    ref_prob = F.softmax(-ref_scores / temperature, dim=-1)
-    changed_prob = F.softmax(-changed_scores / temperature, dim=-1)
-    midpoint = 0.5 * (ref_prob + changed_prob)
-    eps = torch.finfo(ref_prob.dtype).eps
-    ranking_loss = 0.5 * (
-        (ref_prob * ((ref_prob + eps).log() - (midpoint + eps).log())).sum(-1).mean()
-        + (changed_prob * ((changed_prob + eps).log() - (midpoint + eps).log())).sum(-1).mean()
-    )
+    if ranking_metric == "centered_mse":
+        # Subtract common cost shifts before comparing the action margins.
+        score_delta = ref_scores.float() - changed_scores.float()
+        ranking_loss = (score_delta - score_delta.mean(dim=-1, keepdim=True)).square().mean()
+    else:
+        ref_prob = F.softmax(-ref_scores / temperature, dim=-1)
+        changed_prob = F.softmax(-changed_scores / temperature, dim=-1)
+        midpoint = 0.5 * (ref_prob + changed_prob)
+        eps = torch.finfo(ref_prob.dtype).eps
+        ranking_loss = 0.5 * (
+            (ref_prob * ((ref_prob + eps).log() - (midpoint + eps).log())).sum(-1).mean()
+            + (changed_prob * ((changed_prob + eps).log() - (midpoint + eps).log())).sum(-1).mean()
+        )
 
     total = (
         float(representation_weight) * representation_loss

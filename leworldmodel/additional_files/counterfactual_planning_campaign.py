@@ -39,7 +39,7 @@ def environment() -> dict[str, str]:
     return env
 
 
-def arm_spec() -> dict:
+def arm_spec(ranking_metric: str = "js", relative_cost_only: bool = False) -> dict:
     return {
         "overrides": [
             "data.dataset.name=pusht_expert_train.h5",
@@ -48,11 +48,12 @@ def arm_spec() -> dict:
             "+pixel_tag.counterfactual_key=pixels_counterfactual",
             "+loss.pred_weight=1.0",
             "+loss.counterfactual_planning.enabled=true",
-            "+loss.counterfactual_planning.representation_weight=0.1",
+            f"+loss.counterfactual_planning.representation_weight={0 if relative_cost_only else 0.1}",
             "+loss.counterfactual_planning.action_weight=1.0",
             "+loss.counterfactual_planning.ranking_weight=0.1",
             "+loss.counterfactual_planning.margin=0.05",
             "+loss.counterfactual_planning.temperature=0.1",
+            f"+loss.counterfactual_planning.ranking_metric={ranking_metric}",
         ],
         "pair_suites": ["colour"],
         "eval_overrides": ["+eval.tag_mode=video", "+eval.tag_size=5"],
@@ -69,7 +70,9 @@ def training_config() -> dict:
     }
 
 
-def train(root: Path, seed: int, smoke: bool) -> None:
+def train(
+    root: Path, seed: int, smoke: bool, ranking_metric: str, relative_cost_only: bool,
+) -> None:
     import run as base_runner
 
     prefix = f"{root.name}_{'smoke' if smoke else 'full'}_cfplan"
@@ -90,7 +93,8 @@ def train(root: Path, seed: int, smoke: bool) -> None:
         extra_opts=options,
         tag=root.name,
     )
-    built = base_runner.build_spec(prefix, arm_spec(), training_config(), seed, args)
+    arm = arm_spec(ranking_metric, relative_cost_only)
+    built = base_runner.build_spec(prefix, arm, training_config(), seed, args)
     target.mkdir()
     (target / "command.json").write_text(json.dumps(built.command, indent=2))
     with (target / "resolved-config.yaml").open("w") as stream:
@@ -120,6 +124,9 @@ def train(root: Path, seed: int, smoke: bool) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--submit", action="store_true")
+    parser.add_argument("--smoke-only", action="store_true")
+    parser.add_argument("--ranking-metric", choices=("js", "centered_mse"), default="js")
+    parser.add_argument("--relative-cost-only", action="store_true")
     parser.add_argument("--partition", default="gpu_shared")
     parser.add_argument("--seeds", default="0")
     parser.add_argument("--worker", choices=("smoke", "train"))
@@ -134,14 +141,20 @@ def main() -> None:
         manifest = json.loads((args.campaign / "manifest.json").read_text())
         if source_digest() != manifest["source_sha256"]:
             raise RuntimeError("Source/config changed since submission")
-        train(args.campaign, args.seed, args.worker == "smoke")
+        train(
+            args.campaign, args.seed, args.worker == "smoke",
+            manifest.get("ranking_metric", "js"),
+            manifest.get("relative_cost_only", False),
+        )
         print(f"COUNTERFACTUAL_{args.worker.upper()}_COMPLETE", flush=True)
         return
 
     seeds = list(dict.fromkeys(int(item) for item in args.seeds.split(",")))
     if not seeds or min(seeds) < 0:
         parser.error("Need explicit nonnegative seeds")
-    print(f"Tagged PushT counterfactual planning: seeds={seeds}, 10 epochs.")
+    budget = "2-step smoke only" if args.smoke_only else "10 epochs after smoke"
+    print(f"Tagged PushT counterfactual planning: seeds={seeds}, {budget}.")
+    print(f"Ranking metric: {args.ranking_metric}; relative-cost-only: {args.relative_cost_only}")
     print("No Lctrl, aligned routing, or privileged state is enabled.")
     if not args.submit:
         print("PLAN ONLY. Pass --submit on the cluster.")
@@ -154,11 +167,17 @@ def main() -> None:
     if args.partition not in partitions:
         raise SystemExit(f"Unknown partition {args.partition!r}")
 
-    root = REPO / "leworldmodel/results" / (
-        "counterfactual-planning-" + datetime.now().strftime("%Y%m%d-%H%M%S")
-    )
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    root = REPO / "leworldmodel/results" / f"counterfactual-planning-{args.ranking_metric}-{timestamp}"
     root.mkdir(parents=True, exist_ok=False)
-    manifest = {"source_sha256": source_digest(), "training_seeds": seeds, "jobs": []}
+    manifest = {
+        "source_sha256": source_digest(),
+        "training_seeds": seeds,
+        "ranking_metric": args.ranking_metric,
+        "relative_cost_only": args.relative_cost_only,
+        "smoke_only": args.smoke_only,
+        "jobs": [],
+    }
 
     def save() -> None:
         (root / "manifest.json").write_text(json.dumps(manifest, indent=2))
@@ -196,9 +215,13 @@ def main() -> None:
         print(f"SUBMITTED {job} {worker} seed={seed}", flush=True)
         return job
 
-    smoke = submit("smoke", 0)
-    for seed in seeds:
-        submit("train", seed, smoke)
+    if args.smoke_only:
+        for seed in seeds:
+            submit("smoke", seed)
+    else:
+        smoke = submit("smoke", 0)
+        for seed in seeds:
+            submit("train", seed, smoke)
     print(f"JOB_MANIFEST={root / 'manifest.json'}")
 
 

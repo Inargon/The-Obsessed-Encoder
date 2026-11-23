@@ -19,6 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--python-bin", default="/grp01/ids_compcog/song/envs/obsessed-encoder-py312/bin/python")
     parser.add_argument("--scenes", type=int, default=8)
     parser.add_argument("--colors", type=int, default=512)
+    parser.add_argument("--sigreg-audit", action="store_true")
     return parser.parse_args()
 
 
@@ -35,6 +36,8 @@ def main() -> None:
     artifacts = campaign / "artifacts"
 
     base = [args.python_bin, str(script)]
+    if args.sigreg_audit:
+        base.append("--sigreg-audit")
     smoke_command = base + [
         "--out-dir", str(smoke),
         "--scenes", "2",
@@ -50,6 +53,9 @@ def main() -> None:
         "--batch-size", "64",
     ]
     archive = campaign / "tag-folding-probe-visuals.tar.gz"
+    archive_files = ["tag-folding-probe-summary.png", "tag-folding-probe.json"]
+    if args.sigreg_audit:
+        archive_files.append("tag-folding-probe-embeddings.npz")
     shell = "\n".join(
         [
             "set -euo pipefail",
@@ -63,7 +69,7 @@ def main() -> None:
             shlex.join(
                 [
                     "tar", "-czf", str(archive), "-C", str(artifacts),
-                    "tag-folding-probe-summary.png", "tag-folding-probe.json",
+                    *archive_files,
                 ]
             ),
             "echo TAG_FOLDING_PROBE_CAMPAIGN_COMPLETE",
@@ -76,6 +82,7 @@ def main() -> None:
             "smoke": "2 scenes x 48 colors",
             "full": f"{args.scenes} scenes x {args.colors} colors",
             "models": ["jepa", "ours"],
+            "sigreg_audit": args.sigreg_audit,
             "outputs": [
                 "absolute tag sensitivity",
                 "global participation dimension",
@@ -89,7 +96,10 @@ def main() -> None:
     sbatch = [
         "sbatch", "--parsable",
         "--partition", args.partition,
-        "--nodelist", args.nodelist,
+    ]
+    if args.nodelist:
+        sbatch += ["--nodelist", args.nodelist]
+    sbatch += [
         "--gres=gpu:1",
         "--cpus-per-task=4",
         "--mem=24G",

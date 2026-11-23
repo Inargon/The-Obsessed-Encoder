@@ -155,3 +155,59 @@ cd leworldmodel && PYTHONPATH=.. python train.py \
   +checkpoint.every_n_steps=500 \
   +pixel_tag.mode=video +pixel_tag.size=5 +eval.tag_mode=video +eval.tag_size=5
 ```
+
+## SIGReg and tag folding
+
+From the repository root, the CPU-only synthetic audit compares two encoders
+with identical empirical output distributions and different sensitivity to
+the same tag intervention.
+
+```bash
+python -m leworldmodel.additional_files.sigreg_folding_audit synthetic \
+  --out results/sigreg-folding-synthetic.json
+```
+
+The report includes the actual LeWorldModel SIGReg statistic, an i.i.d. Gaussian
+reference with matching sample count, dimension and directions, and fixed
+candidate rankings. The candidate bank shares a tag while the goal tag stays
+fixed. Covariance participation ratio and known intrinsic dimension describe
+the harmonic curve. The norm spread and largest axis score give complementary
+readouts of this particular construction.
+
+For an existing tag-folding export, run the same statistic on raw embeddings
+without loading a model or regenerating pixels.
+
+```bash
+python -m leworldmodel.additional_files.sigreg_folding_audit embeddings \
+  path/to/tag-folding-probe-embeddings.npz --out results/sigreg-folding-frozen.json
+```
+
+Pass `--sigreg-audit` to `tag_folding_probe.py` to include the audit in a new
+probe report. These scores describe RGB sweeps conditional on a fixed physical
+scene. Training SIGReg sees batches sampled across scenes, so those scores
+answer a separate question.
+
+For the existing counterfactual planning training arm, append
+`+loss.counterfactual_planning.ranking_metric=centered_mse` to its Hydra
+overrides to compare centered candidate costs directly. The original
+`js` metric remains the default. Use
+`loss.counterfactual_planning.representation_weight=0` on both comparison
+arms to isolate the relative-cost signal from full-embedding matching.
+
+On the cluster, the tagged audit runs a small frozen-checkpoint smoke before
+the full sweep. The archive includes the raw embeddings for offline reanalysis.
+
+```bash
+python leworldmodel/additional_files/tag_folding_probe_campaign.py \
+  --submit --confirm-run --sigreg-audit --partition gpu_shared --nodelist ''
+```
+
+The counterfactual launcher can submit a matched pair of two-step training
+checks. Each short run writes its resolved configuration and job manifest.
+
+```bash
+for metric in js centered_mse; do
+  python leworldmodel/additional_files/counterfactual_planning_campaign.py \
+    --submit --smoke-only --ranking-metric "$metric" --relative-cost-only
+done
+```

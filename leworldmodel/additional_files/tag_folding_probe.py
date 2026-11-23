@@ -308,12 +308,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         representative,
         aggregate,
     )
+    embedding_arrays = {
+        name: np.stack(values) for name, values in raw_embeddings.items()
+    }
     np.savez_compressed(
         output_dir / "tag-folding-probe-embeddings.npz",
         colors=colors,
         dataset_indices=indices,
-        jepa=np.stack(raw_embeddings["jepa"]),
-        ours=np.stack(raw_embeddings["ours"]),
+        **embedding_arrays,
     )
     result = {
         "protocol": {
@@ -344,6 +346,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             for name in ("jepa", "ours")
         },
     }
+    if getattr(args, "sigreg_audit", False):
+        if __package__:
+            from .sigreg_folding_audit import audit_tag_sweeps
+        else:
+            from sigreg_folding_audit import audit_tag_sweeps
+
+        result["sigreg_audit"] = audit_tag_sweeps(
+            embedding_arrays, projections=args.projections, seed=args.seed,
+        )
     (output_dir / "tag-folding-probe.json").write_text(
         json.dumps(_json_safe(result), indent=2),
         encoding="utf-8",
@@ -363,6 +374,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--colors", type=int, default=512)
     parser.add_argument("--dataset-indices", type=int, nargs="*")
     parser.add_argument("--projections", type=int, default=512)
+    parser.add_argument(
+        "--sigreg-audit",
+        action="store_true",
+        help="also score raw embeddings with the training SIGReg statistic",
+    )
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--seed", type=int, default=73)
     parser.add_argument("--device", default="cuda")

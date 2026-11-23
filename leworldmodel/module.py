@@ -22,18 +22,17 @@ class SIGReg(torch.nn.Module):
         self.register_buffer("phi", window)
         self.register_buffer("weights", weights * window)
 
+    def projected_statistics(self, projected):
+        """Return per-direction Epps–Pulley statistics for (..., B, P) slices."""
+        x_t = projected.unsqueeze(-1) * self.t
+        err = (x_t.cos().mean(-3) - self.phi).square() + x_t.sin().mean(-3).square()
+        return (err @ self.weights) * projected.size(-2)
+
     def forward(self, proj):
-        """
-        proj: (T, B, D)
-        """
-        # sample random projections
+        """Compute the mean statistic for embeddings shaped (T, B, D)."""
         A = torch.randn(proj.size(-1), self.num_proj, device=proj.device)
         A = A.div_(A.norm(p=2, dim=0))
-        # compute the epps-pulley statistic
-        x_t = (proj @ A).unsqueeze(-1) * self.t
-        err = (x_t.cos().mean(-3) - self.phi).square() + x_t.sin().mean(-3).square()
-        statistic = (err @ self.weights) * proj.size(-2)
-        return statistic.mean() # average over projections and time
+        return self.projected_statistics(proj @ A).mean()
     
 class FeedForward(nn.Module):
     """FeedForward network used in Transformers"""
