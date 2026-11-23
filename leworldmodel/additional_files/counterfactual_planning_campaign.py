@@ -71,29 +71,45 @@ def training_config() -> dict:
 
 
 def train(
-    root: Path, seed: int, smoke: bool, ranking_metric: str, relative_cost_only: bool,
+    root: Path, seed: int, phase: str, manifest: dict,
 ) -> None:
     import run as base_runner
 
-    prefix = f"{root.name}_{'smoke' if smoke else 'full'}_cfplan"
+    prefix = f"{root.name}_{phase if phase != 'train' else 'full'}_cfplan"
     name = f"{prefix}_seed{seed}"
     checkpoint = Path(os.environ["STABLEWM_HOME"]) / "checkpoints" / name
     target = root / name
     if checkpoint.exists() or target.exists():
         raise RuntimeError(f"Refusing existing run: {name}; use a fresh campaign")
     options = "++checkpoint.every_n_steps=5000 ++eval.every_n_steps=2000"
-    if smoke:
+    arm = arm_spec(manifest.get("ranking_metric", "js"), manifest.get("relative_cost_only", False))
+    if phase == "smoke":
         options = (
             "++trainer.max_steps=2 ++checkpoint.every_n_steps=1000000 "
             "++eval.every_n_steps=1000000"
         )
+    elif phase == "pilot":
+        options = (
+            f"++trainer.max_steps={manifest['pilot_steps']} ++trainer.log_every_n_steps=4 "
+            "++trainer.limit_val_batches=0 "
+            "++checkpoint.every_n_steps=1000000 ++eval.every_n_steps=1000000 "
+            "++pair.every_n_steps=1000000"
+        )
+        arm["overrides"] += [
+            "+stage2.enabled=true",
+            f"+stage2.init_checkpoint={manifest['init_checkpoint']}",
+            "+stage2.freeze_representation=false",
+            "+optimizer_scheduler.type=ConstantLR",
+            "+optimizer_scheduler.factor=1.0",
+            "optimizer.lr=1e-5",
+            "+loss.counterfactual_planning.action_margin_reference_only=true",
+        ]
     args = argparse.Namespace(
         results_dir=str(root),
-        epochs=1 if smoke else 10,
+        epochs=10 if phase == "train" else 1,
         extra_opts=options,
         tag=root.name,
     )
-    arm = arm_spec(ranking_metric, relative_cost_only)
     built = base_runner.build_spec(prefix, arm, training_config(), seed, args)
     target.mkdir()
     (target / "command.json").write_text(json.dumps(built.command, indent=2))
@@ -112,7 +128,7 @@ def train(
         check=True,
     )
     expected = checkpoint / (
-        "weights_epoch_1.pt" if smoke else "weights_epoch_10.pt"
+        "weights_epoch_10.pt" if phase == "train" else "weights_epoch_1.pt"
     )
     if not expected.is_file():
         raise RuntimeError(f"Missing expected checkpoint: {expected}")
@@ -124,12 +140,15 @@ def train(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--submit", action="store_true")
-    parser.add_argument("--smoke-only", action="store_true")
-    parser.add_argument("--ranking-metric", choices=("js", "centered_mse"), default="js")
+    budget = parser.add_mutually_exclusive_group()
+    budget.add_argument("--smoke-only", action="store_true")
+    budget.add_argument("--pilot-steps", type=int)
+    parser.add_argument("--init-checkpoint", type=Path)
+    parser.add_argument("--ranking-metric", choices=("js", "centered_mse", "margin_guard"), default="js")
     parser.add_argument("--relative-cost-only", action="store_true")
     parser.add_argument("--partition", default="gpu_shared")
     parser.add_argument("--seeds", default="0")
-    parser.add_argument("--worker", choices=("smoke", "train"))
+    parser.add_argument("--worker", choices=("smoke", "pilot", "train"))
     parser.add_argument("--campaign", type=Path)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
@@ -141,19 +160,24 @@ def main() -> None:
         manifest = json.loads((args.campaign / "manifest.json").read_text())
         if source_digest() != manifest["source_sha256"]:
             raise RuntimeError("Source/config changed since submission")
-        train(
-            args.campaign, args.seed, args.worker == "smoke",
-            manifest.get("ranking_metric", "js"),
-            manifest.get("relative_cost_only", False),
-        )
+        train(args.campaign, args.seed, args.worker, manifest)
         print(f"COUNTERFACTUAL_{args.worker.upper()}_COMPLETE", flush=True)
         return
 
     seeds = list(dict.fromkeys(int(item) for item in args.seeds.split(",")))
     if not seeds or min(seeds) < 0:
         parser.error("Need explicit nonnegative seeds")
-    budget = "2-step smoke only" if args.smoke_only else "10 epochs after smoke"
-    print(f"Tagged PushT counterfactual planning: seeds={seeds}, {budget}.")
+    if args.pilot_steps is not None:
+        if args.pilot_steps < 1 or args.init_checkpoint is None:
+            parser.error("--pilot-steps requires a positive step count and --init-checkpoint")
+        if args.submit and not args.init_checkpoint.is_file():
+            parser.error(f"Initialization checkpoint missing: {args.init_checkpoint}")
+        budget_description = f"{args.pilot_steps}-step warm-start pilot"
+    elif args.init_checkpoint is not None:
+        parser.error("--init-checkpoint requires --pilot-steps")
+    else:
+        budget_description = "2-step smoke only" if args.smoke_only else "10 epochs after smoke"
+    print(f"Tagged PushT counterfactual planning: seeds={seeds}, {budget_description}.")
     print(f"Ranking metric: {args.ranking_metric}; relative-cost-only: {args.relative_cost_only}")
     print("No Lctrl, aligned routing, or privileged state is enabled.")
     if not args.submit:
@@ -176,6 +200,8 @@ def main() -> None:
         "ranking_metric": args.ranking_metric,
         "relative_cost_only": args.relative_cost_only,
         "smoke_only": args.smoke_only,
+        "pilot_steps": args.pilot_steps,
+        "init_checkpoint": str(args.init_checkpoint.resolve()) if args.init_checkpoint else None,
         "jobs": [],
     }
 
@@ -198,7 +224,7 @@ def main() -> None:
         batch = [
             "sbatch", "--parsable", "--partition", args.partition,
             "--gres=gpu:1", "--cpus-per-task=12", "--mem=64G",
-            "--time=00:30:00" if worker == "smoke" else "--time=20:00:00",
+            "--time=20:00:00" if worker == "train" else "--time=00:30:00",
             "--job-name=oe-cfplan-" + worker,
             "--chdir", str(REPO), "--output", str(root / "job-%j.out"),
         ]
@@ -215,7 +241,10 @@ def main() -> None:
         print(f"SUBMITTED {job} {worker} seed={seed}", flush=True)
         return job
 
-    if args.smoke_only:
+    if args.pilot_steps is not None:
+        for seed in seeds:
+            submit("pilot", seed)
+    elif args.smoke_only:
         for seed in seeds:
             submit("smoke", seed)
     else:

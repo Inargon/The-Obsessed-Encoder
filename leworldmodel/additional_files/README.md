@@ -211,3 +211,18 @@ for metric in js centered_mse; do
     --submit --smoke-only --ranking-metric "$metric" --relative-cost-only
 done
 ```
+
+A warm-start pilot can compare centered cost matching with `margin_guard`.
+The guard applies to a retagged action pair once the observed action beats
+the shuffled action by the supervised margin in the reference view. It
+penalizes a retagged gap below 25% of that detached reference gap. Both pilot
+arms use action-margin supervision on the reference view, a fresh optimizer
+at a constant learning rate of `1e-5`, and the same initialization.
+
+```bash
+for metric in centered_mse margin_guard; do
+  python leworldmodel/additional_files/counterfactual_planning_campaign.py \
+    --submit --pilot-steps 96 --init-checkpoint "$JEPA_INIT_CHECKPOINT" \
+    --ranking-metric "$metric" --relative-cost-only
+done
+```

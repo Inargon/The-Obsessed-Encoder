@@ -465,7 +465,7 @@ def run(cfg):
         'model_opt': {
             "modules": 'model',
             "optimizer": dict(cfg.optimizer),
-            "scheduler": {"type": "LinearWarmupCosineAnnealingLR"},
+            "scheduler": dict(cfg.get("optimizer_scheduler", {"type": "LinearWarmupCosineAnnealingLR"})),
             "interval": "epoch",
         },
     }
