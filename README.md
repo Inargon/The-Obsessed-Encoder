@@ -250,6 +250,22 @@ The launcher prints the job IDs and writes them to `manifest.json` under
 `leworldmodel/results/independent-tag-*/`. The evaluation saves per-clip
 diagnostics in `tag-intervention.json` and paired summaries in `report.json`.
 
+For the frozen candidate-ranking follow-up, pass the previous diagnostic to:
+
+```bash
+python leworldmodel/additional_files/tag_candidate_audit_campaign.py \
+  --previous /path/to/independent-tag-run/tag-intervention.json
+```
+
+This schedules one evaluation and checks the five checkpoint hashes against
+the previous run. The fixed bank uses separate episodes from the queries, with
+one complete window per episode in either group. The report includes strict
+winner displacements, ties, and paired query-episode intervals conditional on
+the bank. It also checks whether a frozen replay of the one-step training margin
+flags the same interventions as the planner. By default the diagnostic samples
+from the same source dataset as the previous evaluation, so this split does not
+imply that the query episodes were held out from model training.
+
 ## Repository lineage
 
 This repository began as the companion code for Enigma's

@@ -49,6 +49,8 @@ def main():
     p.add_argument('--horizon', type=int, default=5)
     p.add_argument('--frameskip', type=int, default=5)
     p.add_argument('--tag-size', type=int, default=5)
+    p.add_argument('--candidate-audit', action='store_true',
+                   help='Save matched costs and training-anchor gaps on disjoint episode sets')
     args = p.parse_args()
     if args.out.exists():
         raise SystemExit(f'Refusing to overwrite {args.out}')
@@ -61,6 +63,9 @@ def main():
     from additional_files.evaluate_reacher_checkpoint import load_inference_model
     from additional_files.diagnose_frozen_representation import parse_checkpoint
     from additional_files.mechanism_metrics import summarize, cost_changes, normalize_action_blocks
+    from additional_files.tag_candidate_audit import (
+        CONDITIONS, candidate_gaps, frozen_anchor_gaps, sample_episode_bank,
+    )
     from utils import get_img_preprocessor, get_column_normalizer
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -69,16 +74,27 @@ def main():
     dataset = swm.data.load_dataset(args.dataset, cache_dir=os.environ['LOCAL_DATASET_DIR'],
         num_steps=args.history+args.horizon, frameskip=args.frameskip, keys_to_cache=['action'])
     dataset.transform = None
-    normalizer = get_column_normalizer(dataset, 'action', 'action')
+    normalizer_source = dataset
+    if args.candidate_audit and args.dataset != 'pusht_expert_train.h5':
+        normalizer_source = swm.data.load_dataset(
+            'pusht_expert_train.h5', cache_dir=os.environ['LOCAL_DATASET_DIR'],
+            keys_to_load=['action'], keys_to_cache=['action'],
+        )
+    normalizer = get_column_normalizer(normalizer_source, 'action', 'action')
     native_action_dim = int(dataset.get_dim('action'))
     preprocess = get_img_preprocessor('pixels','pixels',img_size=224)
-    requested = min(args.num_clips, len(dataset))
-    ids = np.asarray(
-        choose_finite_action_indices(
-            dataset, rng.permutation(len(dataset)), requested
-        ),
-        dtype=int,
-    )
+    if args.candidate_audit:
+        query, bank = sample_episode_bank(
+            dataset, rng, args.num_clips, args.candidates, args.history + args.horizon,
+            args.frameskip, args.history,
+        )
+        ids = np.asarray([item['clip'] for item in query], dtype=int)
+    else:
+        requested = min(args.num_clips, len(dataset))
+        ids = np.asarray(
+            choose_finite_action_indices(dataset, rng.permutation(len(dataset)), requested),
+            dtype=int,
+        )
     if len(ids)<2:
         raise ValueError('Dataset must contain >=2 clips')
     pixels, actions = [], []
@@ -97,7 +113,24 @@ def main():
         actions.append(act.reshape(args.history+args.horizon, -1))
     actions = torch.stack(actions)
     colors = torch.as_tensor(rng.integers(0,256,(len(ids),2,3)),dtype=torch.uint8)
-    bank_ids = rng.integers(len(ids), size=(len(ids),args.candidates))
+    if args.candidate_audit:
+        for clip_id in np.nonzero((colors[:, 0] == colors[:, 1]).all(1).numpy())[0]:
+            colors[clip_id, 1, 0] = (int(colors[clip_id, 1, 0]) + 1) % 256
+        bank_actions = torch.stack([
+            normalize_action_blocks(
+                torch.as_tensor(dataset[item['clip']]['action']).clone(), normalizer, native_action_dim,
+            ).reshape(args.history + args.horizon, -1)
+            for item in bank
+        ])
+        futures = bank_actions[:, args.history - 1:-1].flatten(1)
+        if not torch.isfinite(bank_actions).all() or len(torch.unique(futures, dim=0)) != args.candidates:
+            raise ValueError('Normalized future plans must be finite and distinct')
+        bank_ids = np.tile(np.arange(args.candidates), (len(ids), 1))
+        source_ids = np.asarray([item['clip'] for item in bank])
+    else:
+        bank_actions = actions
+        bank_ids = rng.integers(len(ids), size=(len(ids),args.candidates))
+        source_ids = ids
     partners = np.roll(np.arange(len(ids)),1)
     root = Path(os.environ['STABLEWM_HOME'])/'checkpoints'
     result = {'protocol':dict(vars(args), out=str(args.out),
@@ -111,8 +144,19 @@ def main():
             'scene':'replace context or goal frames with another sampled clip while holding tag and candidates fixed',
             'action_sequence':'cyclically shift future action blocks within each candidate while holding context and goal fixed',
         },
-        indices=ids.tolist(), candidate_source_indices=ids[bank_ids].tolist(),
+        indices=ids.tolist(), candidate_source_indices=source_ids[bank_ids].tolist(),
         colors=colors.tolist(), device=str(device)), 'runs':{}}
+    if args.candidate_audit:
+        result['protocol'].update(
+            sampling='one complete clip per query episode, conditional on one fixed disjoint candidate bank',
+            bootstrap='paired query-episode resampling conditional on frozen checkpoints and the fixed bank',
+            episode_split={'query': query, 'candidate': bank},
+            training_independent_episodes_verified=False,
+            action_normalization_dataset='pusht_expert_train.h5',
+            anchor='frozen one-step expert-vs-other-episode action pair, using the training gap layout',
+            anchor_negative_source_indices=source_ids[np.arange(len(ids)) % args.candidates].tolist(),
+            normalized_future_plans=futures.tolist(),
+        )
 
     def image(raw, color):
         tagged=raw.clone()
@@ -131,36 +175,39 @@ def main():
                     digest.update(chunk)
             model=load_inference_model(run,filename).to(device).eval().requires_grad_(False)
             metrics={}
+            all_costs = {name: [] for name in CONDITIONS}
+            all_anchors = {name: [] for name in CONDITIONS if name != 'action_sequence'}
             def add(key, value):
                 metrics.setdefault(key,[]).append(float(value))
             for i, raw in enumerate(pixels):
                 own=image(raw,colors[i,0]); changed=image(raw,colors[i,1])
-                other=image(pixels[int(partners[i])],colors[i,0])
-                frames=torch.stack([own[0],changed[0],other[0]])
-                backbone=model.encoder(frames,interpolate_pos_encoding=True).last_hidden_state[:,0].float()
-                for rep, emb in [('backbone',backbone),('projection',model.projector(backbone))]:
-                    tag_dist=(emb[0]-emb[1]).square().mean().item()
-                    content_dist=(emb[0]-emb[2]).square().mean().item()
-                    add(rep+'/tag_intervention_mse',tag_dist)
-                    add(rep+'/content_intervention_mse',content_dist)
-
-                # Same history actions, same future candidate bank for all tag conditions.
-                plans=actions[bank_ids[i],:args.history+args.horizon-1].clone()
-                plans[:,:args.history-1]=actions[i,:args.history-1]
-                plans=plans.unsqueeze(0).to(device)
-                costs={}
-                for condition, ctx, goal in [
+                views = [
                     ('reference', own, own),
                     ('both_tags', changed, changed),
                     ('context_tag', changed, own),
                     ('goal_tag', own, changed),
-                    ('context_scene', other, own),
-                    ('goal_scene', own, other),
-                ]:
+                ]
+                if not args.candidate_audit:
+                    other=image(pixels[int(partners[i])],colors[i,0])
+                    frames=torch.stack([own[0],changed[0],other[0]])
+                    backbone=model.encoder(frames,interpolate_pos_encoding=True).last_hidden_state[:,0].float()
+                    for rep, emb in [('backbone',backbone),('projection',model.projector(backbone))]:
+                        tag_dist=(emb[0]-emb[1]).square().mean().item()
+                        content_dist=(emb[0]-emb[2]).square().mean().item()
+                        add(rep+'/tag_intervention_mse',tag_dist)
+                        add(rep+'/content_intervention_mse',content_dist)
+                    views += [('context_scene', other, own), ('goal_scene', own, other)]
+
+                # Same history actions, same future candidate bank for all tag conditions.
+                plans=bank_actions[bank_ids[i],:args.history+args.horizon-1].clone()
+                plans[:,:args.history-1]=actions[i,:args.history-1]
+                plans=plans.unsqueeze(0).to(device)
+                costs={}
+                for condition, ctx, goal in views:
                     count=args.candidates
                     info={'pixels':ctx[:args.history][None,None].expand(1,count,-1,-1,-1,-1),
                           'goal':goal[-1:][None,None].expand(1,count,-1,-1,-1,-1),
-                          'action':plans}
+                          'action':plans.clone()}
                     costs[condition]=model.get_cost(info,plans.clone()).cpu().numpy()
 
                 # Change the future action order while holding context, goal,
@@ -176,17 +223,14 @@ def main():
                 action_info={
                     'pixels':own[:args.history][None,None].expand(1,count,-1,-1,-1,-1),
                     'goal':own[-1:][None,None].expand(1,count,-1,-1,-1,-1),
-                    'action':action_plans,
+                    'action':action_plans.clone(),
                 }
                 costs['action_sequence']=model.get_cost(
                     action_info, action_plans.clone()
                 ).cpu().numpy()
                 first=plans[:,:,args.history-1].cpu().numpy()
                 changed_first=action_plans[:,:,args.history-1].cpu().numpy()
-                for condition in (
-                    'both_tags', 'context_tag', 'goal_tag',
-                    'context_scene', 'goal_scene', 'action_sequence',
-                ):
+                for condition in [name for name, _, _ in views[1:]] + ['action_sequence']:
                     action_argument = (
                         changed_first if condition == 'action_sequence' else None
                     )
@@ -195,10 +239,21 @@ def main():
                         changed_first_actions=action_argument,
                     ).items():
                         add(condition+'/'+key,value[0])
+                if args.candidate_audit:
+                    for condition in CONDITIONS:
+                        all_costs[condition].append(costs[condition][0].tolist())
+                    for condition, gaps in frozen_anchor_gaps(
+                        model, own, changed, actions[i], bank_actions[i % args.candidates], args.history,
+                    ).items():
+                        all_anchors[condition].append(gaps)
                 if (i+1)%16==0:
                     print(f'{label}: {i+1}/{len(ids)}',flush=True)
             result['runs'][label]={'run_name':run,'checkpoint':filename,'sha256':digest.hexdigest(),
                 'metrics':{k:summarize(v,args.seed) for k,v in metrics.items()}, 'per_clip':metrics}
+            if args.candidate_audit:
+                result['runs'][label]['candidate_audit'] = {
+                    'costs': all_costs, 'anchor': all_anchors, 'rank': candidate_gaps(all_costs),
+                }
             del model
             if device.type=='cuda': torch.cuda.empty_cache()
     args.out.parent.mkdir(parents=True,exist_ok=True)
