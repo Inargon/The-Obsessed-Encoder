@@ -229,6 +229,27 @@ Datasets and generated results are intentionally not committed. Runners use
 `DATA_DIR`, `RESULTS_DIR`, and `STABLEWM_HOME` to keep large artifacts outside
 the source tree.
 
+### Independent tag interventions on Slurm
+
+From a dedicated checkout on the cluster, use the experiment's Python environment:
+
+```bash
+python leworldmodel/additional_files/independent_tag_ablation.py \
+  --both-campaign /path/to/completed/both-tags-margin-guard-campaign
+```
+
+Pass the campaign directory containing the historical `manifest.json`. The
+launcher checks the warm-start checkpoint and pilot settings, then submits
+three 96-step pilots using context-only, goal-only, and balanced retagging.
+Slurm starts the paired evaluation after all three pilots succeed. It compares
+the original checkpoint and all four pilots on the same 64 clips and 32
+candidates per clip, with a future-action-order intervention as a control.
+Keep the checkout at the submitted revision until the jobs finish.
+
+The launcher prints the job IDs and writes them to `manifest.json` under
+`leworldmodel/results/independent-tag-*/`. The evaluation saves per-clip
+diagnostics in `tag-intervention.json` and paired summaries in `report.json`.
+
 ## Repository lineage
 
 This repository began as the companion code for Enigma's
