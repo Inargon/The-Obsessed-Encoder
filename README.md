@@ -273,6 +273,11 @@ continuation. Compare matched low-rank mappings with mean and diagonal-moment
 corrections and an intentionally shuffled calibration. The report separates
 tag stability, recorded-action ranking, and response to future-action reorder.
 The default 32 anchors and one fixed RGB pair are shared across checkpoints.
+Use `--action-protection` to project rank-four corrections away from
+calibration action directions and compare with an equally sized random
+subspace. This also measures SIGReg on the query goal and recorded-rollout
+vectors. `--palette-seed` changes the RGB pair while retaining the same
+calibration episodes, queries, and candidate bank.
 
 ## Repository lineage
 

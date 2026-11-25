@@ -16,6 +16,10 @@ from additional_files.tag_candidate_audit import sample_episode_bank
 
 TAG_MODES = ("context_tag", "goal_tag", "both_tags")
 RANKS = (1, 4, 16)
+ACTION_RANKS = (4, 16)
+ACTION_METRICS = (
+    "strict_any_tag_flip", "worst_recorded_rank", "changed_tag_relative_action_response",
+)
 CONDITIONS = {"reference": (0, 0), "context_tag": (1, 0), "goal_tag": (0, 1), "both_tags": (1, 1)}
 
 
@@ -63,6 +67,65 @@ def alignment_variants(reference, shifted):
         "diagonal_moments": lambda values: ref_center + (values - shifted_center) * ratios,
         **{f"paired_rank_{rank}": fit_alignment(reference, shifted, rank) for rank in RANKS},
         "shuffled_rank_4": fit_alignment(reference, np.roll(shifted, 1, axis=0), 4),
+    }
+
+
+def fit_action_basis(calibration_predictions):
+    """Estimate action directions from differences within each calibration scene and tag."""
+    values = np.asarray(calibration_predictions, dtype=np.float64)
+    if values.ndim != 4 or values.shape[-2] < 2 or not np.isfinite(values).all():
+        raise ValueError("Expected finite calibration predictions (episode, tag, action, feature)")
+    centered = (values - values.mean(axis=-2, keepdims=True)).reshape(-1, values.shape[-1])
+    energy, axes = np.linalg.eigh(centered.T @ centered)
+    energy, axes = energy[::-1], axes[:, ::-1]
+    if energy[0] <= 0:
+        raise ValueError("The calibration candidates have no within-scene action variation")
+    rank = int(np.count_nonzero(energy > energy[0] * 1e-12))
+    return axes[:, :rank], energy[:rank] / energy[:rank].sum()
+
+
+def protect_action_directions(mapping, basis):
+    def corrected(values):
+        update = mapping(values) - values
+        return values + (update - (update @ basis) @ basis.T)
+
+    return corrected
+
+
+def action_protection_variants(pred_fit, goal_fit, calibration_predictions, seed):
+    axes, energy = fit_action_basis(calibration_predictions)
+    random_axes, _ = np.linalg.qr(
+        np.random.default_rng(seed + 1).normal(size=(len(axes), min(axes.shape[1], max(ACTION_RANKS))))
+    )
+    fitted = {}
+    diagnostics = {}
+    for rank in ACTION_RANKS:
+        basis = axes[:, :rank]
+        fitted[f"paired_rank_4_protect_action_{rank}"] = (
+            protect_action_directions(pred_fit["paired_rank_4"], basis),
+            protect_action_directions(goal_fit["paired_rank_4"], basis),
+        )
+        fitted[f"paired_rank_4_protect_random_{rank}"] = (
+            protect_action_directions(pred_fit["paired_rank_4"], random_axes[:, :basis.shape[1]]),
+            protect_action_directions(goal_fit["paired_rank_4"], random_axes[:, :basis.shape[1]]),
+        )
+        diagnostics[str(rank)] = {
+            "effective_rank": basis.shape[1],
+            "within_scene_action_energy_fraction": float(energy[:rank].sum()),
+        }
+    return fitted, diagnostics
+
+
+def matched_sigreg(audit, predictions, goals, recorded_index, mixed_tags):
+    rows = np.arange(len(recorded_index))
+    recorded_rollout = predictions[:, rows, recorded_index]
+    return {
+        name: {
+            "reference_tag": audit.measure(values[0]),
+            "changed_tag": audit.measure(values[1]),
+            "balanced_mixed_tags": audit.measure(values[mixed_tags, rows]),
+        }
+        for name, values in (("goal_encoder", goals), ("recorded_rollout", recorded_rollout))
     }
 
 
@@ -117,6 +180,7 @@ def summarize_variants(predictions, goals, reordered, recorded_index, fitted, se
     resample = rng.integers(n, size=(2000, n))
     results = {}
     baseline = None
+    rank_four = None
     for name, maps in fitted.items():
         measured = measure_alignment(predictions, goals, reordered, recorded_index, maps)
         if baseline is None:
@@ -126,12 +190,12 @@ def summarize_variants(predictions, goals, reordered, recorded_index, fitted, se
         elif not np.array_equal(measured["reference_costs"], baseline["reference_costs"]):
             raise ValueError("An alignment modified the reference candidate costs")
 
-        def paired(key):
+        def paired(key, compare=baseline, difference_label="difference_vs_raw"):
             value = measured[key].astype(float)
-            differences = value - baseline[key].astype(float)
+            differences = value - compare[key].astype(float)
             return {
                 "mean": float(value.mean()),
-                "difference_vs_raw": float(differences.mean()),
+                difference_label: float(differences.mean()),
                 "paired_episode_ci95": np.quantile(differences[resample].mean(1), [0.025, 0.975]).tolist(),
             }
 
@@ -149,6 +213,14 @@ def summarize_variants(predictions, goals, reordered, recorded_index, fitted, se
                 for key in ("strict_any_tag_flip", "worst_recorded_rank", "changed_tag_action_order_flip")
             },
         }
+        if name == "paired_rank_4":
+            rank_four = measured
+        if name.startswith("paired_rank_4_protect_"):
+            if rank_four is None:
+                raise ValueError("Protected variants must follow the ordinary rank-four alignment")
+            results[name]["paired_vs_rank_4"] = {
+                key: paired(key, rank_four, "difference") for key in ACTION_METRICS
+            }
     return results
 
 
@@ -201,6 +273,8 @@ def main():
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--anchors", type=int, default=32)
+    parser.add_argument("--action-protection", action="store_true")
+    parser.add_argument("--palette-seed", type=int)
     args = parser.parse_args()
     if args.out.exists() or args.anchors <= max(RANKS):
         parser.error("Use a new output and more than 16 calibration episodes")
@@ -239,7 +313,8 @@ def main():
     )
     calibration, query = selected[:args.anchors], selected[args.anchors:]
     recorded_indices = rng.integers(candidate_count, size=queries)
-    palette = torch.as_tensor(rng.integers(256, size=(2, 3)), dtype=torch.uint8)
+    palette_rng = rng if args.palette_seed is None else np.random.default_rng(args.palette_seed)
+    palette = torch.as_tensor(palette_rng.integers(256, size=(2, 3)), dtype=torch.uint8)
     if torch.equal(palette[0], palette[1]):
         palette[1, 0] = (int(palette[1, 0]) + 1) % 256
     preprocess = get_img_preprocessor("pixels", "pixels", img_size=224)
@@ -274,6 +349,7 @@ def main():
             "dataset": args.dataset,
             "seed": protocol["seed"],
             "rgb": palette.tolist(),
+            "palette_seed": args.palette_seed,
             "calibration": calibration,
             "queries": query,
             "candidate_bank": bank,
@@ -292,6 +368,17 @@ def main():
     }
     records = [collect(item) for item in calibration + query]
     checkpoint_root = Path(os.environ["STABLEWM_HOME"]) / "checkpoints"
+    projection_audits = {}
+    mixed_tags = np.random.default_rng(protocol["seed"] + 2).permutation(np.arange(queries) % 2)
+    if args.action_protection:
+        from additional_files.sigreg_folding_audit import ProjectionAudit
+
+        report["protocol"]["sigreg"] = {
+            "samples": queries,
+            "projections": 1024,
+            "mixed_tags": mixed_tags.tolist(),
+            "scope": "unmodified terminal representations of the same query episodes as the cost audit",
+        }
     with torch.inference_mode():
         for name, old in previous["runs"].items():
             checkpoint = checkpoint_root / old["run_name"] / old["checkpoint"]
@@ -302,13 +389,25 @@ def main():
             if digest.hexdigest() != old["sha256"]:
                 raise ValueError(f"{name}: checkpoint SHA-256 changed")
             model = load_inference_model(old["run_name"], old["checkpoint"]).to(device).eval().requires_grad_(False)
-            anchor_pred, anchor_goal = [], []
+            anchor_pred, anchor_goal, action_calibration = [], [], []
             for frames, recorded in records[:args.anchors]:
-                pred, goal = terminal_features(model, frames.to(device), recorded[None, None, :-1], history)
+                # Retain the original single-candidate calibration for the paired mapping.
+                frames = frames.to(device)
+                pred, goal = terminal_features(model, frames, recorded[None, None, :-1], history)
                 anchor_pred.append(pred[:, 0].float().cpu().numpy())
                 anchor_goal.append(goal.float().cpu().numpy())
+                if args.action_protection:
+                    plans = query_actions(recorded, bank_actions, 0, history)
+                    action_pred, _ = terminal_features(model, frames, plans, history)
+                    action_calibration.append(action_pred.float().cpu().numpy())
             pred_fit = alignment_variants(*np.stack(anchor_pred, axis=1))
             goal_fit = alignment_variants(*np.stack(anchor_goal, axis=1))
+            fitted = {key: (pred_fit[key], goal_fit[key]) for key in pred_fit}
+            if args.action_protection:
+                protected, basis_diagnostics = action_protection_variants(
+                    pred_fit, goal_fit, action_calibration, protocol["seed"],
+                )
+                fitted.update(protected)
             predictions, goals, reordered = [], [], []
             for i, (frames, recorded) in enumerate(records[args.anchors:]):
                 frames = frames.to(device)
@@ -322,18 +421,30 @@ def main():
                 predictions.append(pred.float().cpu().numpy())
                 goals.append(goal.float().cpu().numpy())
                 reordered.append(action_info["predicted_emb"][0, :, -1].float().cpu().numpy())
-            report["runs"][name] = {
+            predictions = np.stack(predictions, axis=1)
+            goals = np.stack(goals, axis=1)
+            run = report["runs"][name] = {
                 "checkpoint_sha256": digest.hexdigest(),
                 "raw_cost_parity_checked": True,
                 "variants": summarize_variants(
-                    np.stack(predictions, axis=1),
-                    np.stack(goals, axis=1),
+                    predictions,
+                    goals,
                     np.stack(reordered),
                     recorded_indices,
-                    {key: (pred_fit[key], goal_fit[key]) for key in pred_fit},
+                    fitted,
                     protocol["seed"],
                 ),
             }
+            if args.action_protection:
+                dim = goals.shape[-1]
+                if dim not in projection_audits:
+                    projection_audits[dim] = ProjectionAudit(queries, dim, 1024, protocol["seed"], 32)
+                audit = projection_audits[dim]
+                run["action_subspace"] = basis_diagnostics
+                run["sigreg"] = {
+                    "iid_gaussian_reference": audit.reference,
+                    **matched_sigreg(audit, predictions, goals, recorded_indices, mixed_tags),
+                }
             print(f"TAG_PAIRED_PLANNING_CHECKPOINT_COMPLETE {name}", flush=True)
             del model
             if device.type == "cuda":

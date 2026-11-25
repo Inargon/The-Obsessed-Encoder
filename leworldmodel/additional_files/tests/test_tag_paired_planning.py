@@ -4,6 +4,7 @@ import sys
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import torch
 from torch import nn
 
@@ -42,6 +43,23 @@ def test_low_rank_mapping_preserves_the_complement_on_held_out_vectors():
     np.testing.assert_allclose(alignment(reflected), held, atol=1e-6)
     delta = alignment(reflected) - reflected
     np.testing.assert_allclose(delta, (delta @ axis)[:, None] * axis, atol=1e-12)
+
+
+def test_action_basis_ignores_scene_offsets_and_preserves_action_coordinates():
+    rng = np.random.default_rng(74)
+    true_basis, _ = np.linalg.qr(rng.normal(size=(20, 2)))
+    actions = rng.normal(size=(8, 2, 6, 2)) @ true_basis.T
+    offset = rng.normal(size=(8, 2, 1, 20)) * 20
+    basis, energy = audit.fit_action_basis(actions + offset)
+    np.testing.assert_allclose(basis @ basis.T, true_basis @ true_basis.T, atol=1e-12)
+    assert energy.shape == (2,)
+
+    held_out = rng.normal(size=(5, 7, 20))
+    correction = rng.normal(size=20)
+    protected = audit.protect_action_directions(lambda values: values + correction, basis)
+    update = protected(held_out) - held_out
+    np.testing.assert_allclose(update @ basis, 0, atol=1e-12)
+    np.testing.assert_allclose(update[0, 0], correction - true_basis @ (true_basis.T @ correction))
 
 
 def test_recorded_actions_reach_the_goal_frame_with_correct_observed_prefix():
@@ -94,7 +112,8 @@ def test_paired_report_preserves_reference_and_penalizes_recorded_ties():
     assert report["paired"]["changed_tag_action_order_flip"]["mean"] > 0
 
 
-def test_frozen_worker_writes_auditable_episode_split_and_checkpoint_hash(tmp_path, monkeypatch):
+@pytest.mark.parametrize("protect", [False, True])
+def test_frozen_worker_writes_auditable_episode_split_and_checkpoint_hash(tmp_path, monkeypatch, protect):
     class Dataset:
         column_names = ("episode_idx", "step_idx", "action")
 
@@ -150,6 +169,7 @@ def test_frozen_worker_writes_auditable_episode_split_and_checkpoint_hash(tmp_pa
     monkeypatch.setattr(sys, "argv", [
         "audit", "--previous", str(previous), "--out", str(output),
         "--dataset", "pusht_expert_train.h5", "--anchors", "17",
+        *(["--action-protection", "--palette-seed", "74"] if protect else []),
     ])
     audit.main()
     report = json.loads(output.read_text())
@@ -159,8 +179,26 @@ def test_frozen_worker_writes_auditable_episode_split_and_checkpoint_hash(tmp_pa
     assert len({row["episode"] for group in groups for row in group}) == 24
     run = report["runs"]["fixture"]
     assert run["checkpoint_sha256"] == sha256 and run["raw_cost_parity_checked"]
-    assert set(run["variants"]) == {
+    expected = {
         "raw", "mean_shift", "diagonal_moments", "paired_rank_1",
         "paired_rank_4", "paired_rank_16", "shuffled_rank_4",
     }
+    if protect:
+        expected.update({
+            "paired_rank_4_protect_action_4", "paired_rank_4_protect_action_16",
+            "paired_rank_4_protect_random_4", "paired_rank_4_protect_random_16",
+        })
+        expected_rgb = np.random.default_rng(74).integers(256, size=(2, 3)).tolist()
+        assert protocol["rgb"] == expected_rgb
+        assert sorted(protocol["sigreg"]["mixed_tags"]) == [0, 0, 1, 1]
+        assert set(run["sigreg"]["recorded_rollout"]) == {
+            "reference_tag", "changed_tag", "balanced_mixed_tags",
+        }
+        protected = run["variants"]["paired_rank_4_protect_action_4"]
+        ordinary = run["variants"]["paired_rank_4"]
+        for metric in audit.ACTION_METRICS:
+            assert protected["paired_vs_rank_4"][metric]["difference"] == pytest.approx(
+                protected[metric]["mean"] - ordinary[metric]["mean"]
+            )
+    assert set(run["variants"]) == expected
     assert all(len(row["per_episode"]["strict_any_tag_flip"]) == 4 for row in run["variants"].values())

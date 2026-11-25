@@ -15,6 +15,7 @@ from independent_tag_ablation import ARMS, checkpoint_spec, read_json, write_jso
 
 def evaluate(
     previous: Path, root: Path, dataset: str, env: dict[str, str], paired_alignment=False, anchors=32,
+    action_protection=False, palette_seed=None,
 ) -> None:
     from tag_candidate_audit import summarize_candidate_audit
 
@@ -26,10 +27,15 @@ def evaluate(
     if set(old["runs"]) != set(labels):
         raise ValueError("Expected the original checkpoint and all four interventions")
     if paired_alignment:
-        subprocess.run([
+        command = [
             sys.executable, "-u", str(HERE / "tag_paired_planning.py"), "--previous", str(previous),
             "--out", str(root / "report.json"), "--dataset", dataset, "--anchors", str(anchors),
-        ], check=True, cwd=REPO, env=env)
+        ]
+        if action_protection:
+            command.append("--action-protection")
+        if palette_seed is not None:
+            command += ["--palette-seed", str(palette_seed)]
+        subprocess.run(command, check=True, cwd=REPO, env=env)
         return
     protocol = old["protocol"]
     raw = root / "candidate-costs.json"
@@ -84,11 +90,17 @@ def main() -> None:
     parser.add_argument("--dataset", help="Optional independent evaluation data")
     parser.add_argument("--paired-alignment", action="store_true", help="Run the frozen alignment test")
     parser.add_argument("--anchors", type=int, default=32, help="Calibration episodes for paired alignment")
+    parser.add_argument("--action-protection", action="store_true", help="Add action-protected mappings and SIGReg")
+    parser.add_argument("--palette-seed", type=int, help="Change the RGB pair with the same physical split")
     parser.add_argument("--partition", default="gpu_shared")
     parser.add_argument("--worker", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.paired_alignment and args.anchors <= 16:
         parser.error("Paired alignment needs more than 16 calibration episodes")
+    if (args.action_protection or args.palette_seed is not None) and not args.paired_alignment:
+        parser.error("Action protection and palette changes require --paired-alignment")
+    if args.palette_seed is not None and args.palette_seed < 0:
+        parser.error("Palette seed must be nonnegative")
     previous = args.previous.resolve()
     if not previous.is_file():
         parser.error(f"Previous evaluation missing: {previous}")
@@ -99,7 +111,10 @@ def main() -> None:
     env.setdefault("OMP_NUM_THREADS", "2")
     env.setdefault("MKL_NUM_THREADS", "2")
     if args.worker:
-        evaluate(previous, args.worker, dataset, env, args.paired_alignment, args.anchors)
+        evaluate(
+            previous, args.worker, dataset, env, args.paired_alignment, args.anchors,
+            args.action_protection, args.palette_seed,
+        )
         return
 
     experiment = "tag-paired-alignment" if args.paired_alignment else "tag-candidate-audit"
@@ -108,6 +123,7 @@ def main() -> None:
     manifest = {
         "source_sha256": source_digest(), "previous": str(previous), "dataset": dataset,
         "paired_alignment": args.paired_alignment, "anchors": args.anchors,
+        "action_protection": args.action_protection, "palette_seed": args.palette_seed,
     }
     write_json(root / "manifest.json", manifest)
     worker = [
@@ -116,6 +132,10 @@ def main() -> None:
     ]
     if args.paired_alignment:
         worker += ["--paired-alignment", "--anchors", str(args.anchors)]
+    if args.action_protection:
+        worker.append("--action-protection")
+    if args.palette_seed is not None:
+        worker += ["--palette-seed", str(args.palette_seed)]
     response = subprocess.check_output([
         "sbatch", "--parsable", "--partition", args.partition, "--job-name=oe-" + experiment,
         "--gres=gpu:1", "--cpus-per-task=4", "--mem=24G", "--time=00:30:00",
