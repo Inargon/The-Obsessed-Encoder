@@ -15,7 +15,7 @@ from independent_tag_ablation import ARMS, checkpoint_spec, read_json, write_jso
 
 def evaluate(
     previous: Path, root: Path, dataset: str, env: dict[str, str], paired_alignment=False, anchors=32,
-    action_protection=False, palette_seed=None,
+    action_protection=False, palette_seed=None, physical_margin_pilot=False,
 ) -> None:
     from tag_candidate_audit import summarize_candidate_audit
 
@@ -23,6 +23,12 @@ def evaluate(
     if manifest["source_sha256"] != source_digest():
         raise RuntimeError("Source/config changed since submission")
     old = read_json(previous)
+    if physical_margin_pilot:
+        subprocess.run([
+            sys.executable, "-u", str(HERE / "tag_physical_margin_pilot.py"),
+            "--previous", str(previous), "--out", str(root / "report.json"),
+        ], check=True, cwd=REPO, env=env)
+        return
     labels = ("base", *ARMS)
     if set(old["runs"]) != set(labels):
         raise ValueError("Expected the original checkpoint and all four interventions")
@@ -88,7 +94,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--previous", required=True, type=Path, help="Previous tag-intervention.json")
     parser.add_argument("--dataset", help="Optional independent evaluation data")
-    parser.add_argument("--paired-alignment", action="store_true", help="Run the frozen alignment test")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--paired-alignment", action="store_true", help="Run the frozen alignment test")
+    mode.add_argument("--physical-margin-pilot", action="store_true", help="Fit a physical scoring head")
     parser.add_argument("--anchors", type=int, default=32, help="Calibration episodes for paired alignment")
     parser.add_argument("--action-protection", action="store_true", help="Add action-protected mappings and SIGReg")
     parser.add_argument("--palette-seed", type=int, help="Change the RGB pair with the same physical split")
@@ -106,6 +114,8 @@ def main() -> None:
         parser.error(f"Previous evaluation missing: {previous}")
     old = read_json(previous)
     dataset = args.dataset or old["protocol"]["dataset"]
+    if args.physical_margin_pilot and dataset != "pusht_expert_train.h5":
+        parser.error("The physical-margin pilot uses the original PushT HDF5 replay data")
     env = environment()
     env.update(HF_HUB_OFFLINE="1", PYTHONDONTWRITEBYTECODE="1")
     env.setdefault("OMP_NUM_THREADS", "2")
@@ -113,17 +123,20 @@ def main() -> None:
     if args.worker:
         evaluate(
             previous, args.worker, dataset, env, args.paired_alignment, args.anchors,
-            args.action_protection, args.palette_seed,
+            args.action_protection, args.palette_seed, args.physical_margin_pilot,
         )
         return
 
     experiment = "tag-paired-alignment" if args.paired_alignment else "tag-candidate-audit"
+    if args.physical_margin_pilot:
+        experiment = "tag-physical-margin"
     root = REPO / "leworldmodel/results" / f"{experiment}-{datetime.now():%Y%m%d-%H%M%S-%f}"
     root.mkdir(parents=True, exist_ok=False)
     manifest = {
         "source_sha256": source_digest(), "previous": str(previous), "dataset": dataset,
         "paired_alignment": args.paired_alignment, "anchors": args.anchors,
         "action_protection": args.action_protection, "palette_seed": args.palette_seed,
+        "physical_margin_pilot": args.physical_margin_pilot,
     }
     write_json(root / "manifest.json", manifest)
     worker = [
@@ -136,6 +149,8 @@ def main() -> None:
         worker.append("--action-protection")
     if args.palette_seed is not None:
         worker += ["--palette-seed", str(args.palette_seed)]
+    if args.physical_margin_pilot:
+        worker.append("--physical-margin-pilot")
     response = subprocess.check_output([
         "sbatch", "--parsable", "--partition", args.partition, "--job-name=oe-" + experiment,
         "--gres=gpu:1", "--cpus-per-task=4", "--mem=24G", "--time=00:30:00",

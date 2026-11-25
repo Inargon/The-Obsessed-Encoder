@@ -279,6 +279,16 @@ subspace. This also measures SIGReg on the query goal and recorded-rollout
 vectors. `--palette-seed` changes the RGB pair while retaining the same
 calibration episodes, queries, and candidate bank.
 
+Use `--physical-margin-pilot` in place of `--paired-alignment` to test how
+physical action labels help a frozen planner preserve candidate ordering
+under independent retagging. The pilot fixes one 32-action bank per
+query, replays every candidate from the same reset and prefix, and uses
+the replayed continuation as a hindsight block goal. It compares identical
+scoring heads trained with reference-only, mean-view, and worst-view margins.
+The head-evaluation episodes, action-source episodes, and RGB sets are
+disjoint from the head-training sets. The report includes fixed-bank
+endpoint regret, all-view hit rate, and any-view candidate flips.
+
 ## Repository lineage
 
 This repository began as the companion code for Enigma's
