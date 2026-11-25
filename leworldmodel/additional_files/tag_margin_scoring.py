@@ -120,3 +120,31 @@ def compare_holdout(variants, distances, eligible, seed):
             reports[name] = summary
         result[label] = {"queries": count, "variants": reports}
     return result
+
+
+def summarize_endpoint_oracle(variants, distances, eligible, seed):
+    """Add per-view outcomes and paired endpoint substitution effects."""
+    summaries = compare_holdout(variants, distances, eligible, seed)
+    names = ("reference", "context_tag", "goal_tag", "both_tags")
+    for group, mask in (("all_queries", np.ones(len(distances), dtype=bool)), ("informative_queries", eligible)):
+        if not mask.any():
+            continue
+        n = int(mask.sum())
+        sampled = np.random.default_rng(seed).integers(n, size=(2000, n))
+        base = np.take_along_axis(distances[mask], variants["native"][mask].argmin(-1), axis=1)
+        for variant, costs in variants.items():
+            chosen = np.take_along_axis(distances[mask], costs[mask].argmin(-1), axis=1)
+            hits = chosen <= 1
+            diff = hits.astype(float) - (base <= 1).astype(float)
+            summaries[group]["variants"][variant]["views"] = {
+                view: {
+                    "hits": int(hits[:, i].sum()),
+                    "mean_endpoint_regret": float((chosen[:, i] - distances[mask].min(1)).mean()),
+                    "hit_rate_difference_vs_native": float(diff[:, i].mean()),
+                    "paired_episode_ci95": np.quantile(
+                        diff[:, i][sampled].mean(1), [0.025, 0.975],
+                    ).tolist(),
+                }
+                for i, view in enumerate(names)
+            }
+    return summaries

@@ -32,6 +32,7 @@ def test_worst_view_is_taken_for_each_pair_before_averaging():
 class ToyPushT:
     def __init__(self, **kwargs):
         self.action_space = SimpleNamespace(low=-1.0, high=1.0)
+        self.space = SimpleNamespace(reindex_shapes_for_body=lambda _: None)
         self.agent = SimpleNamespace(position=np.zeros(2), velocity=np.zeros(2))
         self.block = SimpleNamespace(
             position=np.zeros(2), velocity=np.zeros(2), angle=0., angular_velocity=0.,
@@ -48,7 +49,9 @@ class ToyPushT:
 
     def render(self):
         intensity = int(self.block.position[0] + 500) % 256
-        return np.full((6, 6, 3), intensity, dtype=np.uint8)
+        frame = np.full((6, 6, 3), intensity, dtype=np.uint8)
+        frame[-1, -1, 0] = int(self.agent.position[0] + 500) % 256
+        return frame
 
     def step(self, action):
         self.agent.position += action
@@ -129,8 +132,10 @@ def test_pilot_trains_all_arms_and_reports_disjoint_holdout(tmp_path, monkeypatc
     from additional_files.tests.test_tag_paired_planning import make_model
 
     def make_packed_model():
-        model = make_model()
-        model.action_encoder = torch.nn.Linear(10, 16)
+        with torch.random.fork_rng():
+            torch.manual_seed(97)
+            model = make_model()
+            model.action_encoder = torch.nn.Linear(10, 16)
         return model
 
     monkeypatch.setitem(sys.modules, "additional_files.evaluate_reacher_checkpoint", SimpleNamespace(
@@ -157,3 +162,21 @@ def test_pilot_trains_all_arms_and_reports_disjoint_holdout(tmp_path, monkeypatc
     assert set(variants) == {"native", *ARMS}
     assert "paired_vs_mean_over_tags" in variants["worst_tag"]["worst_endpoint_regret"]
     assert (tmp_path / "heads.pt").is_file()
+
+    endpoint_report = tmp_path / "oracle.json"
+    monkeypatch.setattr(sys, "argv", [
+        "pilot", "--previous", str(previous), "--out", str(endpoint_report),
+        "--endpoint-replay-of", str(report),
+    ])
+    pilot.main()
+    endpoint = json.loads(endpoint_report.read_text())
+    assert endpoint["protocol"]["physical_distances_match_original_pilot"]
+    assert endpoint["protocol"]["original_goal_matches_recorded_endpoint_encoding"]
+    assert endpoint["protocol"]["forecast_original_goal_choice_agreement"] == 1
+    assert endpoint["candidate_distances"] == data["heldout_per_query"]["candidate_distances"]
+    assert endpoint["protocol"]["heldout_queries"] == split["heldout_queries"]
+    assert endpoint["protocol"]["heldout_bank"] == split["heldout_bank"]
+    assert endpoint["protocol"]["rgb_by_query"] == data["protocol"]["rgb_by_query"][-3:]
+    variants = endpoint["heldout"]["all_queries"]["variants"]
+    assert set(variants) == {"native", "simulated_endpoint", "forecast_original_goal"}
+    assert set(variants["simulated_endpoint"]["views"]) == {"reference", "context_tag", "goal_tag", "both_tags"}

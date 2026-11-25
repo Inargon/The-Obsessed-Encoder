@@ -289,6 +289,12 @@ The head-evaluation episodes, action-source episodes, and RGB sets are
 disjoint from the head-training sets. The report includes fixed-bank
 endpoint regret, all-view hit rate, and any-view candidate flips.
 
+Use `--endpoint-oracle <physical-margin-report.json>` for the follow-up
+attribution test. It replays the report's held-out bank, checks the saved
+physical distances, and compares predicted and simulated terminal embeddings
+against the same independently rendered block goal. It also preserves the
+forecast score against the original goal image as a rendering control.
+
 ## Repository lineage
 
 This repository began as the companion code for Enigma's

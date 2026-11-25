@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from additional_files.control_relevance_audit.oracle_closed_loop import goal_error
+from additional_files.control_relevance_audit.goal_role_data import set_render_pose
 from additional_files.mechanism_metrics import normalize_action_blocks
 from additional_files.tag_candidate_audit import sample_episode_bank
 from additional_files.tag_paired_planning import check_cost_parity, terminal_features
@@ -35,7 +36,7 @@ def endpoint_distance(state, goal):
     return max(xy / 10.0, angle / 0.1)
 
 
-def replay_candidates(env, initial, prefix, bank, target_index, seed):
+def replay_candidates(env, initial, prefix, bank, target_index, seed, capture_endpoints=None):
     """Reset and replay the same prefix before every candidate branch."""
     def restore(render_history):
         env.reset(seed=seed, options={"state": initial.copy()})
@@ -59,9 +60,13 @@ def replay_candidates(env, initial, prefix, bank, target_index, seed):
         for action in actions:
             env.step(action.copy())
         endpoints.append(snapshot(env))
-        if index == target_index:
-            target = np.asarray(env.render()).copy()
+        if index == target_index or capture_endpoints is not None:
+            frame = np.asarray(env.render()).copy()
             np.testing.assert_array_equal(snapshot(env), endpoints[-1])
+            if capture_endpoints is not None:
+                capture_endpoints.append((endpoints[-1], frame))
+            if index == target_index:
+                target = frame
 
     endpoints = np.asarray(endpoints)
     if not np.isfinite(endpoints).all():
@@ -78,11 +83,41 @@ def unique_palettes(rng, queries):
     return np.stack((color_ids >> 16, (color_ids >> 8) & 255, color_ids & 255), axis=-1).astype(np.uint8)
 
 
+def independent_goal_frame(env, target_state, endpoints, seed):
+    """Render the same block pose with the agent parked away from the goal."""
+    env.reset(seed=seed, options={"state": target_state[:7].copy()})
+    set_render_pose(env.block, env.space, target_state[2:5])
+    corners = np.array([[64, 64], [64, 448], [448, 64], [448, 448]])
+    corner_order = np.argsort(-np.square(corners - target_state[2:4]).sum(1), kind="stable")
+    for index in corner_order:
+        position = corners[index]
+        env.agent.position = tuple(position)
+        env.space.reindex_shapes_for_body(env.agent)
+        state = snapshot(env)
+        np.testing.assert_allclose(state[:2], position, rtol=0, atol=1e-6)
+        np.testing.assert_allclose(state[2:5], target_state[2:5], rtol=0, atol=1e-6)
+        frame = np.asarray(env.render()).copy()
+        np.testing.assert_array_equal(snapshot(env), state)
+        if all(not np.array_equal(frame, image) for _, image in endpoints):
+            return frame, position.tolist()
+    raise ValueError("Independent target render duplicates a candidate endpoint image")
+
+
+def prepare_pixels(frames, rgb, preprocess):
+    import torch
+
+    pixels = frames.copy()
+    pixels[:, :5, :5, :] = rgb
+    tensor = torch.from_numpy(pixels).permute(0, 3, 1, 2)
+    return preprocess({"pixels": tensor})["pixels"]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--previous", type=Path, required=True, help="Previous tag-intervention.json")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=173)
+    parser.add_argument("--endpoint-replay-of", type=Path, help="Replay the held-out bank from a margin-pilot report")
     args = parser.parse_args()
     if args.out.exists():
         parser.error("Expected a fresh report path")
@@ -94,7 +129,7 @@ def main():
     from stable_worldmodel.envs.pusht.env import PushT
     from additional_files.evaluate_reacher_checkpoint import load_inference_model
     from additional_files.tag_margin_scoring import (
-        compare_holdout, cost_inputs, fit_heads, physical_pairs,
+        compare_holdout, cost_inputs, fit_heads, physical_pairs, summarize_endpoint_oracle,
     )
     from utils import get_column_normalizer, get_img_preprocessor
 
@@ -120,17 +155,39 @@ def main():
     if states.shape[1:] != (7,) or action_dim != 2 or actions.shape[1:] != (action_dim,):
         raise ValueError("Unexpected PushT state/action columns")
 
-    rng = np.random.default_rng(args.seed)
-    queries = TRAIN_QUERIES + TEST_QUERIES
-    query, bank = sample_episode_bank(
-        dataset, rng, queries, 2 * (CANDIDATES - 1), HISTORY + HORIZON, FRAMESKIP, HISTORY,
-    )
-    palettes = unique_palettes(rng, queries)
-    target_indices = rng.integers(CANDIDATES, size=queries)
+    previous_pilot = json.loads(args.endpoint_replay_of.read_text()) if args.endpoint_replay_of else None
+    if previous_pilot is None:
+        rng = np.random.default_rng(args.seed)
+        queries = TRAIN_QUERIES + TEST_QUERIES
+        query, bank = sample_episode_bank(
+            dataset, rng, queries, 2 * (CANDIDATES - 1), HISTORY + HORIZON, FRAMESKIP, HISTORY,
+        )
+        palettes = unique_palettes(rng, queries)
+        target_indices = rng.integers(CANDIDATES, size=queries)
+        bank_groups = (bank[:CANDIDATES - 1], bank[CANDIDATES - 1:])
+        replay_offset = 0
+    else:
+        protocol = previous_pilot["protocol"]
+        if sha != protocol["checkpoint_sha256"] or protocol["dataset"] != "pusht_expert_train.h5":
+            raise ValueError("Pilot checkpoint or dataset does not match the current replay")
+        split = protocol["split"]
+        query, bank = split["heldout_queries"], split["heldout_bank"]
+        queries = len(query)
+        replay_offset = len(split["train_queries"])
+        palettes = np.asarray(protocol["rgb_by_query"][replay_offset:], dtype=np.uint8)
+        target_indices = np.asarray(protocol["target_candidate_by_query"][replay_offset:])
+        if (
+            queries == 0 or len(bank) != CANDIDATES - 1 or palettes.shape != (queries, 2, 3)
+            or target_indices.shape != (queries,) or np.any((target_indices < 0) | (target_indices >= CANDIDATES))
+        ):
+            raise ValueError("Invalid held-out split, RGB values or recorded target indices")
+        args.seed = protocol["seed"]
+        bank_groups = (bank, bank)
     preprocess = get_img_preprocessor("pixels", "pixels", img_size=224)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = load_inference_model(previous["run_name"], previous["checkpoint"]).to(device).eval().requires_grad_(False)
     env = PushT(resolution=224, with_target=False, relative=True)
+    goal_env = PushT(resolution=224, with_target=False, relative=True) if previous_pilot is not None else None
     past_steps = (HISTORY - 1) * FRAMESKIP
     future_steps = HORIZON * FRAMESKIP
 
@@ -142,8 +199,9 @@ def main():
         start = raw_row(item) + past_steps
         return actions[start:start + future_steps]
 
-    banks = np.stack([future(item) for item in bank]).reshape(2, CANDIDATES - 1, future_steps, action_dim)
+    banks = [np.stack([future(item) for item in group]) for group in bank_groups]
     all_pred, all_goal, all_distance, all_initial = [], [], [], []
+    actual_endpoints, independent_goals, goal_agent_xy = [], [], []
     try:
         with torch.inference_mode():
             for index, item in enumerate(query):
@@ -152,13 +210,13 @@ def main():
                 if not np.isfinite(start).all():
                     raise ValueError(f"Nonfinite initial state for episode {item['episode']}")
                 prefix = np.clip(actions[row:row + past_steps], env.action_space.low, env.action_space.high)
-                alternatives = banks[int(index >= TRAIN_QUERIES)]
+                alternatives = banks[int(previous_pilot is not None or index >= TRAIN_QUERIES)]
                 chosen = int(target_indices[index])
                 candidates = np.concatenate((alternatives[:chosen], future(item)[None], alternatives[chosen:]))
                 candidates = np.clip(candidates, env.action_space.low, env.action_space.high)
-                frames, distance, initial_distance = replay_candidates(
-                    env, start, prefix, candidates, chosen, args.seed + index,
-                )
+                capture = [] if previous_pilot is not None else None
+                seed = args.seed + replay_offset + index
+                frames, distance, initial_distance = replay_candidates(env, start, prefix, candidates, chosen, seed, capture)
                 if len(frames) != HISTORY + 1 or frames.dtype != np.uint8 or frames.shape[-1] != 3:
                     raise ValueError("Expected real native RGB history plus one target frame")
                 packed = np.concatenate((np.broadcast_to(prefix, (CANDIDATES, *prefix.shape)), candidates), axis=1)
@@ -166,16 +224,36 @@ def main():
                 normalized = normalize_action_blocks(packed, normalizer, action_dim).to(device)
                 if not torch.isfinite(normalized).all():
                     raise ValueError("Nonfinite normalized replay actions")
-                views = []
-                for rgb in palettes[index]:
-                    pixels = frames.copy()
-                    pixels[:, :5, :5, :] = rgb
-                    tensor = torch.from_numpy(pixels).permute(0, 3, 1, 2)
-                    views.append(preprocess({"pixels": tensor})["pixels"])
-                views = torch.stack(views).to(device)
+                views = torch.stack([prepare_pixels(frames, rgb, preprocess) for rgb in palettes[index]]).to(device)
                 pred, goal = terminal_features(model, views, normalized.unsqueeze(0), HISTORY)
                 if index == 0:
                     check_cost_parity(model, views, normalized.unsqueeze(0), HISTORY, pred, goal)
+                if capture is not None:
+                    old = previous_pilot["heldout_per_query"]
+                    np.testing.assert_allclose(distance, old["candidate_distances"][index], rtol=0, atol=1e-5)
+                    np.testing.assert_allclose(initial_distance, old["start_distance"][index], rtol=0, atol=1e-5)
+                    independent, park_xy = independent_goal_frame(goal_env, capture[chosen][0], capture, seed)
+                    terminal_frames = np.stack([frame for _, frame in capture])
+                    terminal_and_goal = np.concatenate((terminal_frames, independent[None]), axis=0)
+                    encoded = []
+                    for rgb in palettes[index]:
+                        inputs = prepare_pixels(terminal_and_goal, rgb, preprocess).to(device)
+                        encoded.append(torch.stack([
+                            model.encode({"pixels": image[None, None]})["emb"][0, 0] for image in inputs
+                        ]))
+                    encoded = torch.stack(encoded)
+                    torch.testing.assert_close(encoded[:, chosen], goal, rtol=1e-4, atol=1e-5)
+                    if index == 0:
+                        independent_views = torch.stack([
+                            prepare_pixels(np.concatenate((frames[:-1], independent[None])), rgb, preprocess)
+                            for rgb in palettes[index]
+                        ]).to(device)
+                        check_cost_parity(
+                            model, independent_views, normalized.unsqueeze(0), HISTORY, pred, encoded[:, -1],
+                        )
+                    actual_endpoints.append(encoded[:, :-1].float().cpu().numpy())
+                    independent_goals.append(encoded[:, -1].float().cpu().numpy())
+                    goal_agent_xy.append(park_xy)
                 all_pred.append(pred.float().cpu().numpy())
                 all_goal.append(goal.float().cpu().numpy())
                 all_distance.append(distance)
@@ -184,13 +262,52 @@ def main():
                     print(f"PHYSICAL_MARGIN_COLLECTED {index + 1}/{queries}", flush=True)
     finally:
         env.close()
+        if goal_env is not None:
+            goal_env.close()
 
-    inputs, native, normalized = cost_inputs(
-        torch.from_numpy(np.stack(all_pred)).to(device), torch.from_numpy(np.stack(all_goal)).to(device),
-    )
     distances = np.stack(all_distance)
     starts_outside = np.asarray(all_initial) > 1
     opportunity = starts_outside & (distances <= 1).any(1) & (distances >= 2).any(1)
+    predicted = torch.from_numpy(np.stack(all_pred)).to(device)
+    original_goals = torch.from_numpy(np.stack(all_goal)).to(device)
+    if previous_pilot is not None:
+        goals = torch.from_numpy(np.stack(independent_goals)).to(device)
+        actual = torch.from_numpy(np.stack(actual_endpoints)).to(device)
+        # Use the same scoring rule for predicted and simulated terminal vectors.
+        variants = {
+            name: cost_inputs(endpoints, target)[1].cpu().numpy()
+            for name, (endpoints, target) in {
+                "native": (predicted, goals),
+                "simulated_endpoint": (actual, goals),
+                "forecast_original_goal": (predicted, original_goals),
+            }.items()
+        }
+        prior_choices = previous_pilot["heldout_per_query"]["selected_candidate"]["native"]
+        report = {
+            "protocol": {
+                "checkpoint_sha256": sha, "seed": args.seed, "source_pilot": str(args.endpoint_replay_of),
+                "heldout_queries": query, "heldout_bank": bank, "rgb_by_query": palettes.tolist(),
+                "parked_goal_agent_xy": goal_agent_xy,
+                "goal_image": "separately rendered block pose; pusher parked at a distant corner",
+                "native": "forecast endpoints scored against the independent goal",
+                "simulated_endpoint": "simulated endpoints scored against the same independent goal",
+                "physical_distances_match_original_pilot": True,
+                "native_cost_parity_checked": True,
+                "original_goal_matches_recorded_endpoint_encoding": True,
+                "forecast_original_goal_choice_agreement": float(
+                    (variants["forecast_original_goal"].argmin(-1) == np.asarray(prior_choices)).mean()
+                ),
+            },
+            "heldout": summarize_endpoint_oracle(variants, distances, opportunity, args.seed),
+            "candidate_distances": distances.tolist(),
+            "selected_candidate": {name: costs.argmin(-1).tolist() for name, costs in variants.items()},
+        }
+        with args.out.open("x", encoding="utf-8") as stream:
+            json.dump(report, stream, indent=2, allow_nan=False)
+        print(f"ENDPOINT_ORACLE_COMPLETE {args.out}", flush=True)
+        return
+
+    inputs, native, normalized = cost_inputs(predicted, original_goals)
     train = slice(0, TRAIN_QUERIES)
     test = slice(TRAIN_QUERIES, queries)
     pairs = physical_pairs(
