@@ -56,7 +56,15 @@ def test_recorded_actions_reach_the_goal_frame_with_correct_observed_prefix():
 
 
 def test_native_extraction_matches_the_actual_jepa_cost_path():
-    model = make_model()
+    class BatchSensitiveEncoder(Encoder):
+        def forward(self, pixels, interpolate_pos_encoding):
+            result = super().forward(pixels, interpolate_pos_encoding)
+            # Reproduce the numerical drift caused by concatenating color requests.
+            if len(pixels) > 3:
+                result.last_hidden_state = result.last_hidden_state + 0.002
+            return result
+
+    model = JEPA(BatchSensitiveEncoder(), Predictor(), nn.Linear(2, 16)).eval()
     frames = torch.rand(2, 8, 3, 4, 4)
     actions = torch.rand(1, 5, 7, 2)
     with torch.inference_mode():

@@ -152,27 +152,35 @@ def summarize_variants(predictions, goals, reordered, recorded_index, fitted, se
     return results
 
 
-def terminal_features(model, views, actions, history):
-    """Use the exact JEPA rollout and goal encoder called by get_cost."""
+def native_cost_request(model, context, goal, actions, history):
+    """Keep the single-request inference layout of the deployed planner."""
     n = actions.shape[1]
-    inputs = {"pixels": views[:, None, :history].expand(-1, n, -1, -1, -1, -1)}
-    predicted = model.rollout(inputs, actions.expand(2, -1, -1, -1))["predicted_emb"][:, :, -1]
-    goal = model.encode({"pixels": views[:, -1:]})["emb"][:, 0]
-    return predicted, goal
+    info = {
+        "pixels": context[:history][None, None].expand(1, n, -1, -1, -1, -1),
+        "goal": goal[-1:][None, None].expand(1, n, -1, -1, -1, -1),
+        "action": actions.clone(),
+    }
+    cost = model.get_cost(info, actions.clone())[0]
+    return info, cost
+
+
+def terminal_features(model, views, actions, history):
+    """Read terminal features from the live planner call for each tag."""
+    import torch
+
+    predictions, goals = [], []
+    for view in views:
+        info, _ = native_cost_request(model, view, view, actions, history)
+        predictions.append(info["predicted_emb"][0, :, -1])
+        goals.append(info["goal_emb"][0, -1])
+    return torch.stack(predictions), torch.stack(goals)
 
 
 def check_cost_parity(model, views, actions, history, predictions, goals):
     import torch
 
-    n = actions.shape[1]
-    # The deployed get_cost path takes one context-goal request per batch.
     for context_tag, goal_tag in CONDITIONS.values():
-        info = {
-            "pixels": views[context_tag, :history][None, None].expand(1, n, -1, -1, -1, -1),
-            "goal": views[goal_tag, -1:][None, None].expand(1, n, -1, -1, -1, -1),
-            "action": actions.clone(),
-        }
-        expected = model.get_cost(info, actions.clone())[0]
+        _, expected = native_cost_request(model, views[context_tag], views[goal_tag], actions, history)
         actual = (predictions[context_tag] - goals[goal_tag]).square().sum(-1)
         torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-5)
 
@@ -310,10 +318,10 @@ def main():
                     check_cost_parity(model, frames, plans, history, pred, goal)
                 order = plans.clone()
                 order[:, :, history - 1:] = plans[:, :, history - 1:].roll(1, dims=2)
-                action_pred, _ = terminal_features(model, frames, order, history)
+                action_info, _ = native_cost_request(model, frames[1], frames[1], order, history)
                 predictions.append(pred.float().cpu().numpy())
                 goals.append(goal.float().cpu().numpy())
-                reordered.append(action_pred[1].float().cpu().numpy())
+                reordered.append(action_info["predicted_emb"][0, :, -1].float().cpu().numpy())
             report["runs"][name] = {
                 "checkpoint_sha256": digest.hexdigest(),
                 "raw_cost_parity_checked": True,
